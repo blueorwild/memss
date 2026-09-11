@@ -203,8 +203,8 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
               className="absolute left-0 top-0"
               style={{
                 transform: `translate(-50%, -50%) rotateY(${slot.angle}deg) translateZ(${slot.radius}px) translateY(${slot.y}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: 0.35 + 0.65 * intensity,
-                filter: `brightness(${0.68 + 0.32 * intensity})`,
+                opacity: 0.2 + 0.8 * intensity,
+                filter: `brightness(${0.61 + 0.39 * intensity})`,
                 pointerEvents: front ? "auto" : "none",
                 zIndex: Math.round(intensity * 1000),
               }}

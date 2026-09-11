@@ -116,7 +116,7 @@ export default function StarfieldPage({
               key="fog-bg"
               className="pointer-events-none fixed inset-0 z-40 bg-[#070a14]"
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.3 }}
+              animate={{ opacity: 0.1 }}
               transition={{ duration: 0.1, ease: "easeOut" }}
             />
             <motion.div
@@ -131,7 +131,7 @@ export default function StarfieldPage({
                 height: 340,
                 borderRadius: "50%",
                 background:
-                  "radial-gradient(circle, rgba(215,230,255,0.8) 0%, rgba(150,185,255,0.5) 30%, rgba(120,160,255,0.22) 60%, rgba(120,160,255,0) 80%)",
+                  "radial-gradient(circle, rgba(215,230,255,0.4) 0%, rgba(150,185,255,0.2) 30%, rgba(120,160,255,0.05) 60%, rgba(120,160,255,0) 80%)",
                 filter: "blur(14px)",
                 mixBlendMode: "screen",
               }}
@@ -152,12 +152,12 @@ export default function StarfieldPage({
                   height: s.size,
                   borderRadius: "50%",
                   background:
-                    "radial-gradient(circle, rgba(170,200,255,0.4) 0%, rgba(120,160,255,0) 70%)",
+                    "radial-gradient(circle, rgba(170,200,255,0.2) 0%, rgba(120,160,255,0) 70%)",
                   filter: "blur(18px)",
                   mixBlendMode: "screen",
                 }}
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 5, opacity: 0.7 }}
+                animate={{ scale: 5, opacity: 0.3 }}
                 transition={{ duration: 0.1, delay: s.delay, ease: "easeOut" }}
               />
             ))}

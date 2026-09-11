@@ -58,7 +58,7 @@ export default function TimelineRail({
   );
   const yearMarks = years.map((year, i) => {
     const t = years.length === 1 ? 0.5 : i / (years.length - 1);
-    return { year, label: inward(arcPoint(t), 24) };
+    return { year, label: inward(arcPoint(t), 26) };
   });
 
   const active = showCursor && activeId ? memories.find((m) => m.id === activeId) : null;
@@ -66,59 +66,101 @@ export default function TimelineRail({
   const cursor = activeMi !== null ? arcPoint(toT(activeMi)) : null;
 
   return (
-    <svg
-      viewBox="0 0 1000 260"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-x-0 bottom-0 h-[180px] w-full"
-    >
-      <defs>
-        <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="rgba(150,180,255,0)" />
-          <stop offset="50%" stopColor="rgba(150,180,255,0.5)" />
-          <stop offset="100%" stopColor="rgba(150,180,255,0)" />
-        </linearGradient>
-      </defs>
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[140px] w-full">
+      <svg
+        viewBox="0 0 1000 260"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
+      >
+        <defs>
+          <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="rgba(150,180,255,0)" />
+            <stop offset="50%" stopColor="rgba(150,180,255,0.72)" />
+            <stop offset="100%" stopColor="rgba(150,180,255,0)" />
+          </linearGradient>
+        </defs>
+        <polyline
+          points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#railGrad)"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgba(150,180,255,0.55))" }}
+        />
+      </svg>
 
-      <polyline
-        points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
-        fill="none"
-        stroke="url(#railGrad)"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-        style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgba(150,180,255,0.35))" }}
-      />
       {yearMarks.map(({ year, label }) => (
-        <text
+        <span
           key={year}
-          x={label.x}
-          y={label.y}
-          fill="rgba(255,255,255,0.65)"
-          fontSize="12"
-          fontFamily={HAND_FONT}
-          textAnchor="middle"
+          className="absolute -translate-x-1/2 -translate-y-1/2 text-[15px] tracking-wide"
+          style={{
+            left: `${(label.x / 1000) * 100}%`,
+            top: `${(label.y / 260) * 100}%`,
+            color: "rgba(255,255,255,0.85)",
+            fontFamily: HAND_FONT,
+          }}
         >
           {year}
-        </text>
+        </span>
       ))}
+
       {cursor && (
-        <motion.g
+        <motion.div
+          className="absolute"
           initial={false}
-          animate={{ x: cursor.x, y: cursor.y }}
+          animate={{
+            left: `${(cursor.x / 1000) * 100}%`,
+            top: `${(cursor.y / 260) * 100}%`,
+          }}
           transition={{ type: "spring", stiffness: 110, damping: 22 }}
+          style={{ x: "-50%", y: "-50%" }}
         >
-          <circle r="22" fill="rgba(255,240,190,0.2)" style={{ filter: "blur(12px)" }} />
-          <circle r="11" fill="rgba(255,246,214,0.4)" style={{ filter: "blur(5px)" }} />
-          <path
-            d="M 0 -19 L 1.8 -2 L 3.2 0 L 1.8 2 L 0 19 L -1.8 2 L -3.2 0 L -1.8 -2 Z"
-            fill="rgba(255,249,224,1)"
+          <div
+            className="absolute left-0 top-0 rounded-full"
             style={{
-              filter:
-                "blur(0.8px) drop-shadow(0 0 8px rgba(255,238,180,0.9)) drop-shadow(0 0 18px rgba(255,238,180,0.5))",
+              width: 46,
+              height: 46,
+              transform: "translate(-50%, -50%)",
+              background:
+                "radial-gradient(circle, rgba(255,240,190,0.3) 0%, rgba(255,240,190,0) 70%)",
+              filter: "blur(6px)",
             }}
           />
-          <circle r="3.2" fill="#fffaf0" />
-        </motion.g>
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 3,
+              height: 30,
+              transform: "translate(-50%, -50%)",
+              background:
+                "linear-gradient(to bottom, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+              filter: "blur(1px)",
+              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+            }}
+          />
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 16,
+              height: 3,
+              transform: "translate(-50%, -50%)",
+              background:
+                "linear-gradient(to right, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+              filter: "blur(1px)",
+              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+            }}
+          />
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 4,
+              height: 4,
+              transform: "translate(-50%, -50%)",
+              background: "#fffaf0",
+            }}
+          />
+        </motion.div>
       )}
-    </svg>
+    </div>
   );
 }
