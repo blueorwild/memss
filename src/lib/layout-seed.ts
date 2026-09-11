@@ -23,6 +23,9 @@ export function seededRandom(input: string | number): number {
   return mulberry32(hashSeed(input))();
 }
 
+/** 统一把浮点取整到 3 位小数，避免 SSR 与客户端浮点序列化差异导致 hydration 不一致 */
+export const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
 export type CylinderSlot = {
   angle: number;
   y: number;
@@ -40,14 +43,13 @@ export function cylinderSlot(
   radius = BASE_RADIUS,
 ): CylinderSlot {
   const step = 360 / Math.max(total, 1);
-  const angle = index * step;
   const rnd = mulberry32(hashSeed(`${seed}:${index}`));
   return {
-    angle,
-    y: (rnd() - 0.5) * 130,
-    radius: radius + (rnd() - 0.5) * 70,
-    rotate: (rnd() - 0.5) * 12,
-    scale: 0.88 + rnd() * 0.22,
+    angle: r3(index * step),
+    y: r3((rnd() - 0.5) * 130),
+    radius: r3(radius + (rnd() - 0.5) * 70),
+    rotate: r3((rnd() - 0.5) * 12),
+    scale: r3(0.88 + rnd() * 0.22),
   };
 }
 

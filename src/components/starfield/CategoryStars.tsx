@@ -16,6 +16,16 @@ function scatterPos(index: number, total: number, id: string) {
   };
 }
 
+/** 星星白色呼吸粒子参数：固定种子保证 SSR 与客户端一致，中等密度（5 颗/星） */
+const starRand = mulberry32(hashSeed("star-particles"));
+const STAR_PARTICLES = Array.from({ length: 12 }, () => ({
+  dx: (starRand() - 0.5) * 52,
+  dy: (starRand() - 0.5) * 52,
+  dur: 2.4 + starRand() * 2,
+  delay: starRand() * 2.5,
+  size: 1.5 + starRand() * 1.5,
+}));
+
 export default function CategoryStars({
   items,
   onSelect,
@@ -57,6 +67,29 @@ export default function CategoryStars({
 
         return (
           <div key={c.id} className="absolute" style={position}>
+            {/* 可点星星的白色呼吸粒子（不拦截点击） */}
+            {clickable && (
+              <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
+                {STAR_PARTICLES.map((p, i) => (
+                  <motion.span
+                    key={i}
+                    className="absolute rounded-full bg-white"
+                    style={{
+                      width: p.size,
+                      height: p.size,
+                      boxShadow: "0 0 5px 1.5px rgba(255,255,255,0.85)",
+                    }}
+                    animate={{
+                      x: [0, p.dx],
+                      y: [0, p.dy],
+                      opacity: [0, 0.9, 0],
+                      scale: [0.5, 1, 0.3],
+                    }}
+                    transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
+                  />
+                ))}
+              </div>
+            )}
             <motion.button
               type="button"
               disabled={!clickable}

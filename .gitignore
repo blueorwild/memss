@@ -42,3 +42,7 @@ next-env.d.ts
 
 # local database
 /data
+
+# uploaded media (local user data, keep dir)
+/media/uploads/*
+!/media/uploads/.gitkeep

@@ -94,8 +94,8 @@ export default function TimelineRail({
           key={year}
           className="absolute -translate-x-1/2 -translate-y-1/2 text-[15px] tracking-wide"
           style={{
-            left: `${(label.x / 1000) * 100}%`,
-            top: `${(label.y / 260) * 100}%`,
+            left: `${r3((label.x / 1000) * 100)}%`,
+            top: `${r3((label.y / 260) * 100)}%`,
             color: "rgba(255,255,255,0.85)",
             fontFamily: HAND_FONT,
           }}
@@ -109,8 +109,8 @@ export default function TimelineRail({
           className="absolute"
           initial={false}
           animate={{
-            left: `${(cursor.x / 1000) * 100}%`,
-            top: `${(cursor.y / 260) * 100}%`,
+            left: `${r3((cursor.x / 1000) * 100)}%`,
+            top: `${r3((cursor.y / 260) * 100)}%`,
           }}
           transition={{ type: "spring", stiffness: 110, damping: 22 }}
           style={{ x: "-50%", y: "-50%" }}

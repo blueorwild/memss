@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { cylinderSlot, radiusForCount, timelineScatter } from "@/lib/layout-seed";
+import { cylinderSlot, r3, radiusForCount, timelineScatter } from "@/lib/layout-seed";
 import type { MemoryCard } from "@/lib/db/queries";
 import TimelineRail from "./TimelineRail";
 
@@ -190,7 +190,7 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
         className="absolute left-1/2 top-1/2"
         style={{
           transformStyle: "preserve-3d",
-          transform: `translateZ(-${radius}px) rotateY(${rotation}deg)`,
+          transform: `translateZ(-${radius}px) rotateY(${r3(rotation)}deg)`,
         }}
       >
         {slots.map(({ m, slot }) => {
@@ -203,8 +203,8 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
               className="absolute left-0 top-0"
               style={{
                 transform: `translate(-50%, -50%) rotateY(${slot.angle}deg) translateZ(${slot.radius}px) translateY(${slot.y}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: 0.2 + 0.8 * intensity,
-                filter: `brightness(${0.61 + 0.39 * intensity})`,
+                opacity: r3(0.2 + 0.8 * intensity),
+                filter: `brightness(${r3(0.61 + 0.39 * intensity)})`,
                 pointerEvents: front ? "auto" : "none",
                 zIndex: Math.round(intensity * 1000),
               }}

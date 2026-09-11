@@ -1,0 +1,36 @@
+"use client";
+
+import { useSpriteStore } from "@/store/sprite";
+import type { SpriteView } from "@/store/sprite";
+
+/** 功能按钮定义：后续可在此扩展更多能力 */
+const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
+  { key: "chat", label: "对话", icon: "✦" },
+  { key: "upload", label: "上传回忆", icon: "＋" },
+];
+
+/** 小精灵功能按钮栏：切换对话 / 上传回忆 */
+export default function ActionBar() {
+  const view = useSpriteStore((s) => s.view);
+  const openView = useSpriteStore((s) => s.openView);
+
+  return (
+    <div className="flex gap-2 border-b border-white/10 px-4 py-2">
+      {ACTIONS.map((it) => (
+        <button
+          key={it.key}
+          type="button"
+          onClick={() => openView(it.key)}
+          className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+            view === it.key
+              ? "bg-white/15 text-white"
+              : "text-white/60 hover:bg-white/10 hover:text-white"
+          }`}
+        >
+          <span aria-hidden>{it.icon}</span>
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+}
