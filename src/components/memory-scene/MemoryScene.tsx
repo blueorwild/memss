@@ -4,6 +4,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Breadcrumb from "@/components/starfield/Breadcrumb";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import type { Category, MemoryWithMedia } from "@/lib/db/queries";
 
 export default function MemoryScene({
@@ -19,6 +27,7 @@ export default function MemoryScene({
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   // 音量淡入淡出的 rAF 句柄
@@ -34,6 +43,19 @@ export default function MemoryScene({
     leavingRef.current = true;
     setLeaving(true);
   }, []);
+
+  /** 删除当前回忆：成功后走退出动画返回所属类别 */
+  const handleDelete = useCallback(async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/memories/${memory.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("删除失败");
+      handleBack();
+    } catch {
+      setDeleting(false);
+    }
+  }, [deleting, memory.id, handleBack]);
 
   const changeImage = useCallback(
     (dir: number) => {
@@ -165,7 +187,43 @@ export default function MemoryScene({
             ← 返回
           </button>
         </div>
-        <span className="shrink-0 text-sm text-white/50">{memory.date}</span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <span className="text-sm text-white/50">{memory.date}</span>
+          <Dialog>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                className="text-sm text-red-300/80 transition-colors hover:text-red-300"
+              >
+                遗忘
+              </button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogTitle>遗忘这条回忆？</DialogTitle>
+              <DialogDescription>
+                「{memory.title}」及其图片、音乐将被永久遗忘，无法找回。
+              </DialogDescription>
+              <div className="mt-5 flex justify-end gap-2">
+                <DialogClose asChild>
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                  >
+                    取消
+                  </button>
+                </DialogClose>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+                >
+                  {deleting ? "遗忘中…" : "确认遗忘"}
+                </button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </header>
 
       <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-8 px-6 pb-16">

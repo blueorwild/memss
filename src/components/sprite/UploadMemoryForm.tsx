@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { Category } from "@/lib/db/queries";
+import CategoryPicker from "@/components/ui/category-picker";
+import NewCategoryDialog from "@/components/ui/new-category-dialog";
 
 /** 从当前 URL 解析所处类别 id：/star/a/b → "b" */
 function currentCategoryFromPath(pathname: string): string | null {
@@ -19,22 +21,45 @@ const inputCls =
 const fileCls =
   "block w-full text-xs text-white/60 file:mr-2 file:rounded-full file:border-0 file:bg-white/15 file:px-3 file:py-1.5 file:text-white";
 
-/** 上传回忆表单：图片(多) / 音乐(单) / 标题 / 类别 / 时间 / 地点 / 描述 */
+/**
+ * 上传回忆表单：图片(多) / 音乐(单) / 标题 / 类别(级联=地点) / 时间 / 描述。
+ * 新建类别先作为本地草稿，提交时才真正落库；未上传则不留痕迹。
+ */
 export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [serverCategories, setServerCategories] = useState<Category[]>([]);
+  const [drafts, setDrafts] = useState<Category[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
-  const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 新建类别弹层状态
+  const [newParent, setNewParent] = useState<Category | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+
   const imagesRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLInputElement | null>(null);
+
+  // 服务端类别 + 本地草稿，合并后供级联选择
+  const categories = useMemo(() => [...serverCategories, ...drafts], [serverCategories, drafts]);
+
+  // location 由所选类别路径自动生成（去掉根「地球」）
+  const locationText = useMemo(() => {
+    if (!categoryId) return "";
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const names: string[] = [];
+    let cur = byId.get(categoryId);
+    while (cur) {
+      names.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return names.length > 1 ? names.slice(1).join(" / ") : names.join(" / ");
+  }, [categories, categoryId]);
 
   // 载入类别列表，并默认选中「当前所处类别」
   useEffect(() => {
@@ -43,9 +68,9 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
       .then((r) => r.json())
       .then((list: Category[]) => {
         if (!alive) return;
-        setCategories(list);
+        setServerCategories(list);
         const cur = currentCategoryFromPath(pathname);
-        setCategoryId(cur && list.some((c) => c.id === cur) ? cur : list[0]?.id ?? "");
+        setCategoryId(cur && list.some((c) => c.id === cur) ? cur : (list[0]?.id ?? ""));
       })
       .catch(() => {
         if (alive) setError("类别加载失败");
@@ -55,7 +80,55 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
     };
   }, [pathname]);
 
-  /** 提交表单：以 multipart 发送到 /api/memories */
+  /** 新建类别（草稿）：加入本地列表并选中；提交时才落库 */
+  function handleDraftCreated(draft: Category) {
+    setDrafts((prev) => [...prev, draft]);
+    setCategoryId(draft.id);
+  }
+
+  /** 创建类别：同级已存在同名则复用其 id */
+  async function ensureCategory(parentId: string, name: string): Promise<string> {
+    const res = await fetch("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parentId, name }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+    if (res.ok && data.id) return data.id;
+    if (res.status === 409) {
+      const list = (await (await fetch("/api/categories")).json()) as Category[];
+      const found = list.find((c) => c.parentId === parentId && c.name === name);
+      if (found) return found.id;
+    }
+    throw new Error(data.error ?? "新建类别失败");
+  }
+
+  /** 解析所选类别到根的链，把其中草稿依次落库，返回最终真实类别 id */
+  async function resolveCategoryId(): Promise<string> {
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const chain: Category[] = [];
+    let cur = byId.get(categoryId);
+    while (cur) {
+      chain.unshift(cur);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+
+    let resolved = categoryId;
+    let parentRealId: string | null = null;
+    for (const cat of chain) {
+      if (cat.id.startsWith("draft-")) {
+        const realId = await ensureCategory(parentRealId ?? cat.parentId ?? "globe", cat.name);
+        resolved = realId;
+        parentRealId = realId;
+      } else {
+        resolved = cat.id;
+        parentRealId = cat.id;
+      }
+    }
+    return resolved;
+  }
+
+  /** 提交表单：先落库草稿类别，再以 multipart 发送到 /api/memories */
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
@@ -66,17 +139,19 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
     setSubmitting(true);
     setError(null);
 
-    const fd = new FormData();
-    fd.set("title", title);
-    fd.set("categoryId", categoryId);
-    fd.set("date", date);
-    fd.set("location", location);
-    fd.set("description", description);
-    for (const f of Array.from(imagesRef.current?.files ?? [])) fd.append("images", f);
-    const audio = audioRef.current?.files?.[0];
-    if (audio) fd.append("audio", audio);
-
     try {
+      const finalCategoryId = await resolveCategoryId();
+
+      const fd = new FormData();
+      fd.set("title", title);
+      fd.set("categoryId", finalCategoryId);
+      fd.set("date", date);
+      fd.set("location", locationText);
+      fd.set("description", description);
+      for (const f of Array.from(imagesRef.current?.files ?? [])) fd.append("images", f);
+      const audio = audioRef.current?.files?.[0];
+      if (audio) fd.append("audio", audio);
+
       const res = await fetch("/api/memories", { method: "POST", body: fd });
       if (!res.ok) {
         const d = (await res.json().catch(() => ({}))) as { error?: string };
@@ -108,28 +183,21 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
           className={inputCls}
         />
 
-        <select
+        <label className="block text-[11px] text-white/45">类别（即地点）</label>
+        <CategoryPicker
+          categories={categories}
           value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className={inputCls}
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id} className="bg-neutral-900">
-              {c.name}
-            </option>
-          ))}
-        </select>
+          onChange={setCategoryId}
+          onRequestNew={(parent) => {
+            setNewParent(parent);
+            setNewOpen(true);
+          }}
+        />
 
         <input
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className={inputCls}
-        />
-        <input
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="地点"
           className={inputCls}
         />
         <textarea
@@ -151,6 +219,14 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
           {submitting ? "上传中…" : "保存回忆"}
         </button>
       </div>
+
+      <NewCategoryDialog
+        parent={newParent}
+        categories={categories}
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        onCreated={handleDraftCreated}
+      />
     </form>
   );
 }

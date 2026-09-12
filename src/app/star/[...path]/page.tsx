@@ -4,6 +4,7 @@ import {
   getBreadcrumb,
   getCategory,
   getChildrenWithCounts,
+  getSubtreeMemoryCounts,
   listMemoryCards,
 } from "@/lib/db/queries";
 
@@ -15,10 +16,14 @@ export default async function StarPage({ params }: PageProps<"/star/[...path]">)
   const current = getCategory(currentId);
   if (!current) notFound();
 
+  // 当前类别子树的回忆总数（含子类别），用于删除确认弹层显示
+  const currentCount = getSubtreeMemoryCounts().get(currentId) ?? 0;
+
   return (
     <StarfieldPage
       path={path}
       current={current}
+      currentCount={currentCount}
       categories={getChildrenWithCounts(currentId)}
       memories={listMemoryCards(currentId)}
       breadcrumb={getBreadcrumb(path)}

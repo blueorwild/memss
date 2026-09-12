@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Command } from "cmdk";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
@@ -20,6 +20,7 @@ export function Combobox({
   emptyText = "无匹配项",
   disabled = false,
   className,
+  footer,
 }: {
   options: ComboOption[];
   value: string | null;
@@ -28,6 +29,8 @@ export function Combobox({
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  /** 列表底部附加内容（如「新建类别」入口） */
+  footer?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
@@ -79,6 +82,7 @@ export function Combobox({
               </Command.Item>
             ))}
           </Command.List>
+          {footer && <div className="mt-1 border-t border-white/10 pt-1">{footer}</div>}
         </Command>
       </PopoverContent>
     </Popover>

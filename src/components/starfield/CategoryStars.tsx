@@ -43,7 +43,7 @@ export default function CategoryStars({
   return (
     <div className="relative h-full w-full">
       {items.map((c, i) => {
-        const clickable = c.memoryCount > 0;
+        const hasMemories = c.memoryCount > 0;
         const isZoomed = zoomedId === c.id;
 
         let position: React.CSSProperties;
@@ -68,7 +68,7 @@ export default function CategoryStars({
         return (
           <div key={c.id} className="absolute" style={position}>
             {/* 可点星星的白色呼吸粒子（不拦截点击） */}
-            {clickable && (
+            {hasMemories && (
               <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
                 {STAR_PARTICLES.map((p, i) => (
                   <motion.span
@@ -92,37 +92,32 @@ export default function CategoryStars({
             )}
             <motion.button
               type="button"
-              disabled={!clickable}
-              onClick={(e) => clickable && onSelect(c.id, e)}
+              onClick={(e) => onSelect(c.id, e)}
               className="group flex flex-col items-center outline-none"
-              animate={
-                clickable
-                  ? { opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }
-                  : { opacity: 1, scale: 1 }
-              }
+              animate={{ opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }}
               transition={{ duration: isZoomed ? 0.1 : 0.3 }}
             >
               <motion.span
                 className={
-                  clickable
+                  hasMemories
                     ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgba(147,197,253,0.55)]"
-                    : "block h-2.5 w-2.5 rounded-full bg-white/25"
+                    : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
                 }
-                animate={clickable ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}
+                animate={hasMemories ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}
                 transition={
-                  clickable ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}
+                  hasMemories ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}
                 }
               />
               <span
                 className={
-                  clickable
+                  hasMemories
                     ? "mt-3 text-sm text-white/80 transition-colors group-hover:text-white"
-                    : "mt-3 text-xs text-white/35"
+                    : "mt-3 text-xs text-white/35 transition-colors group-hover:text-white/70"
                 }
               >
                 {c.name}
               </span>
-              {clickable && (
+              {hasMemories && (
                 <span className="mt-0.5 text-[10px] text-white/35">{c.memoryCount} 段回忆</span>
               )}
             </motion.button>

@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
 import StarBackground from "./StarBackground";
@@ -12,21 +19,46 @@ import MemoryCylinder from "./MemoryCylinder";
 
 export default function StarfieldPage({
   path,
+  current,
+  currentCount,
   categories,
   memories,
   breadcrumb,
 }: {
   path: string[];
   current: Category;
+  currentCount: number;
   categories: CategoryWithCount[];
   memories: MemoryCard[];
   breadcrumb: Category[];
 }) {
   const router = useRouter();
   const [zoom, setZoom] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [delOpen, setDelOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
 
   const hasChildren = categories.length > 0;
   const hasMemories = memories.length > 0;
+
+  /** 删除当前类别：purge=一并遗忘其下回忆，move=回忆迁移到父类别 */
+  async function doDelete(mode: "purge" | "move") {
+    if (deleting) return;
+    setDeleting(true);
+    setDelError(null);
+    try {
+      const res = await fetch(`/api/categories/${current.id}?mode=${mode}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(d.error ?? "删除失败");
+      }
+      router.push(`/star/${path.slice(0, -1).join("/")}`);
+      router.refresh();
+    } catch (e) {
+      setDelError(e instanceof Error ? e.message : "删除失败");
+      setDeleting(false);
+    }
+  }
 
   function goUp() {
     if (path.length <= 1) return;
@@ -67,16 +99,28 @@ export default function StarfieldPage({
       <StarBackground />
 
       <div className="relative z-10 flex h-full flex-col motion-safe:animate-[sceneIn_0.6s_ease-out_both]">
-        <header className="flex shrink-0 items-center justify-between px-6 py-5">
-          <Breadcrumb items={breadcrumb.map((c) => ({ id: c.id, name: c.name }))} />
-          <button
-            type="button"
-            onClick={goUp}
-            disabled={path.length <= 1}
-            className="text-sm text-white/60 transition-colors hover:text-white disabled:opacity-30"
-          >
-            ↑ 上一级
-          </button>
+        <header className="flex shrink-0 items-start justify-between gap-4 px-6 py-5">
+          <div className="flex flex-col gap-2">
+            <Breadcrumb items={breadcrumb.map((c) => ({ id: c.id, name: c.name }))} />
+            {path.length > 1 && (
+              <button
+                type="button"
+                onClick={goUp}
+                className="inline-flex w-fit items-center gap-1 text-sm text-white/60 transition-colors hover:text-white"
+              >
+                ← 返回
+              </button>
+            )}
+          </div>
+          {current.parentId && (
+            <button
+              type="button"
+              onClick={() => setDelOpen(true)}
+              className="shrink-0 text-sm text-red-300/80 transition-colors hover:text-red-300"
+            >
+              遗忘
+            </button>
+          )}
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col">
@@ -164,6 +208,68 @@ export default function StarfieldPage({
           </>
         )}
       </AnimatePresence>
+
+      {/* 删除此分类：确认弹层（有回忆时可选「迁移」或「一并遗忘」） */}
+      <Dialog open={delOpen} onOpenChange={setDelOpen}>
+        <DialogContent>
+          <DialogTitle>删除「{current.name}」？</DialogTitle>
+          <DialogDescription>
+            「{current.name}」及其下属子分类
+            {currentCount > 0
+              ? `将被删除，其中包含 ${currentCount} 条回忆，请选择处理方式。`
+              : "将被永久删除。"}
+          </DialogDescription>
+
+          {currentCount > 0 ? (
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => doDelete("move")}
+                disabled={deleting}
+                className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/85 transition-colors hover:bg-white/10 disabled:opacity-40"
+              >
+                迁移到上一级（保留回忆）
+              </button>
+              <button
+                type="button"
+                onClick={() => doDelete("purge")}
+                disabled={deleting}
+                className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+              >
+                一并遗忘（删除回忆）
+              </button>
+              <button
+                type="button"
+                onClick={() => setDelOpen(false)}
+                className="rounded-full px-4 py-2 text-sm text-white/50 transition-colors hover:text-white"
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <div className="mt-5 flex justify-end gap-2">
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                >
+                  取消
+                </button>
+              </DialogClose>
+              <button
+                type="button"
+                onClick={() => doDelete("purge")}
+                disabled={deleting}
+                className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+              >
+                {deleting ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          )}
+
+          {delError && <p className="mt-2 text-xs text-red-400">{delError}</p>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
