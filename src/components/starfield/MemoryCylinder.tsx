@@ -25,9 +25,10 @@ export default function MemoryCylinder({ memories }: { memories: MemoryCard[] })
   );
 }
 
+/** 回忆卡片外观：白色常驻微光 + hover 增强（平面 / 滚筒共用） */
 function MemoryCardFace({ memory }: { memory: MemoryCard }) {
   return (
-    <div className="block h-[140px] w-[200px] overflow-hidden rounded-xl border border-white/15 bg-black/40 shadow-2xl">
+    <div className="block h-[140px] w-[200px] overflow-hidden rounded-xl border border-white/15 bg-black/40 ring-1 ring-white/20 shadow-[0_0_18px_2px_rgba(255,255,255,0.18)] transition-shadow duration-300 hover:ring-white/45 hover:shadow-[0_0_28px_6px_rgba(255,255,255,0.32)]">
       {memory.cover ? (
         <img
           src={`/api/media/${memory.cover}`}

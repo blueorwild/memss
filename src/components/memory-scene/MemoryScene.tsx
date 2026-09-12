@@ -21,8 +21,10 @@ export default function MemoryScene({
   const [leaving, setLeaving] = useState(false);
 
   const audioElRef = useRef<HTMLAudioElement | null>(null);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
+  // 音量淡入淡出的 rAF 句柄
+  const fadeRafRef = useRef<number | null>(null);
+  // 播放序号：避免「淡出后暂停」与「快速再次播放」之间的竞态
+  const playSeqRef = useRef(0);
   const leavingRef = useRef(false);
 
   const parentPath = breadcrumb.length > 0 ? breadcrumb.map((c) => c.id).join("/") : "globe";
@@ -41,41 +43,59 @@ export default function MemoryScene({
     [images.length],
   );
 
-  const togglePlayback = useCallback(async () => {
+  /** 用 requestAnimationFrame 线性改变音量，实现淡入淡出 */
+  const fadeVolume = useCallback((el: HTMLAudioElement, to: number, ms: number) => {
+    if (fadeRafRef.current !== null) cancelAnimationFrame(fadeRafRef.current);
+    const from = el.volume;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      el.volume = Math.max(0, Math.min(1, from + (to - from) * t));
+      fadeRafRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    fadeRafRef.current = requestAnimationFrame(step);
+  }, []);
+
+  /** 开始播放：从头播放并淡入 */
+  const startPlayback = useCallback(async () => {
     const el = audioElRef.current;
-    if (!el || !audio) return;
+    if (!el) return;
+    const seq = ++playSeqRef.current;
+    el.currentTime = 0;
+    el.volume = 0;
+    await el.play();
+    if (playSeqRef.current !== seq) return;
+    fadeVolume(el, 1, 1500);
+    setPlaying(true);
+  }, [fadeVolume]);
 
-    if (!ctxRef.current) {
-      const ctx = new AudioContext();
-      const source = ctx.createMediaElementSource(el);
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      source.connect(gain).connect(ctx.destination);
-      ctxRef.current = ctx;
-      gainRef.current = gain;
-    }
+  /** 暂停播放：先淡出再暂停，避免生硬截断 */
+  const stopPlayback = useCallback(() => {
+    const el = audioElRef.current;
+    if (!el) return;
+    const seq = ++playSeqRef.current;
+    fadeVolume(el, 0, 800);
+    setTimeout(() => {
+      // 若期间又触发了播放，则不再暂停
+      if (playSeqRef.current === seq) el.pause();
+    }, 850);
+    setPlaying(false);
+  }, [fadeVolume]);
 
-    const ctx = ctxRef.current;
-    const gain = gainRef.current;
-    if (!ctx || !gain) return;
-    if (ctx.state === "suspended") await ctx.resume();
+  /** 手动切换播放 / 暂停 */
+  const togglePlayback = useCallback(() => {
+    if (!audio) return;
+    if (playing) stopPlayback();
+    else void startPlayback();
+  }, [audio, playing, startPlayback, stopPlayback]);
 
-    if (!playing) {
-      el.currentTime = 0;
-      await el.play();
-      gain.gain.cancelScheduledValues(ctx.currentTime);
-      gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.85, ctx.currentTime + 1.5);
-      setPlaying(true);
-    } else {
-      gain.gain.cancelScheduledValues(ctx.currentTime);
-      gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
-      const target = el;
-      setTimeout(() => target.pause(), 850);
-      setPlaying(false);
-    }
-  }, [audio, playing]);
+  // 进入详情页时若有背景音乐则尝试自动播放；被浏览器拦截则静默回退（保留手动按钮）
+  const autoPlayedRef = useRef(false);
+  useEffect(() => {
+    if (!audio || autoPlayedRef.current) return;
+    autoPlayedRef.current = true;
+    startPlayback().catch(() => setPlaying(false));
+  }, [audio, startPlayback]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -99,9 +119,10 @@ export default function MemoryScene({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [audio, changeImage, togglePlayback, handleBack]);
 
+  // 卸载时取消未完成的淡入淡出动画
   useEffect(() => {
     return () => {
-      void ctxRef.current?.close();
+      if (fadeRafRef.current !== null) cancelAnimationFrame(fadeRafRef.current);
     };
   }, []);
 
