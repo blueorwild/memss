@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
+import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
 
 /** 检索结果中的记忆条目 */
 type MemoryCardItem = { id: string; title: string; date: string | null };
@@ -12,14 +13,15 @@ type MemoryCardItem = { id: string; title: string; date: string | null };
 type Msg = {
   role: "user" | "assistant";
   content: string;
-  /** 本条助手消息对应的检索卡片 */
+  /** 本条助手消息对应的检索卡片（由后端决定，最多 3 条） */
   cards?: MemoryCardItem[];
-  /** 卡片对应的检索总数 */
+  /** 卡片对应的结果总数 */
   cardsTotal?: number;
 };
 
 /** 服务端 SSE 事件 */
 type AgentEvent =
+  | { type: "meta"; conversationId: string; title: string }
   | { type: "text"; delta: string }
   | { type: "tool"; name: string; status: "start" | "done" | "error" }
   | { type: "action"; action: ClientAction }
@@ -30,6 +32,7 @@ type AgentEvent =
 /** 工具执行时的状态文案 */
 const TOOL_LABEL: Record<string, string> = {
   searchMemories: "正在检索回忆…",
+  showMemories: "正在整理回忆…",
   navigateToCategory: "正在前往…",
   uploadMemory: "正在打开上传面板…",
   forgetMemory: "正在遗忘…",
@@ -37,25 +40,24 @@ const TOOL_LABEL: Record<string, string> = {
   openMemory: "正在打开…",
 };
 
-/** 对话中最多展示的记忆卡片数量 */
-const MAX_CARDS = 3;
+const WELCOME = "你好，我是这片星空里的小精灵。想聊点什么？";
+const STORAGE_KEY = "sprite:conversationId";
 
-/** 对话面板：流式对接 /api/agent，逐块渲染回复，并执行工具下发的动作 */
+/** 对话面板：后端为会话真相源，前端只渲染；历史面板可管理多会话 */
 export default function ChatPanel() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: "assistant", content: "你好，我是这片星空里的小精灵。想聊点什么？" },
-  ]);
+  const [view, setView] = useState<"chat" | "history">("chat");
+  const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: WELCOME }]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [agentLabel, setAgentLabel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 会话 ID：同一面板内保持稳定，供 OpenCode Go 等需要会话头的服务做路由优化
-  const sessionRef = useRef("");
 
   // 读取当前生效的服务与模型，显示在面板顶部
   useEffect(() => {
@@ -76,7 +78,53 @@ export default function ChatPanel() {
     };
   }, []);
 
-  // 消息或工具状态更新后自动滚到底部（卡片随消息更新，故也会触发）
+  /** 记住当前会话 id（同时写入 localStorage，刷新后恢复） */
+  const rememberConversation = useCallback((id: string | null) => {
+    setConversationId(id);
+    if (id) localStorage.setItem(STORAGE_KEY, id);
+    else localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  /** 从后端加载某个会话的历史消息 */
+  const loadConversation = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/conversations/${id}`);
+        if (!res.ok) {
+          rememberConversation(null);
+          return;
+        }
+        const d = (await res.json()) as {
+          conversation: ConversationRow;
+          messages: { id: string; role: string; content: string; cards: unknown }[];
+        };
+        const msgs: Msg[] = d.messages.map((m) => {
+          const cards = (m.cards as { items?: MemoryCardItem[]; total?: number } | null) ?? null;
+          return {
+            role: m.role === "user" ? "user" : "assistant",
+            content: m.content,
+            cards: cards?.items,
+            cardsTotal: cards?.total,
+          };
+        });
+        rememberConversation(id);
+        setMessages(msgs.length > 0 ? msgs : [{ role: "assistant", content: WELCOME }]);
+      } catch {
+        // 网络异常时保持当前界面
+      }
+    },
+    [rememberConversation],
+  );
+
+  // 首次挂载：恢复上次的会话（异步触发，避免 effect 内同步 setState）
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const timer = setTimeout(() => void loadConversation(saved), 0);
+    return () => clearTimeout(timer);
+  }, [loadConversation]);
+
+  // 消息或工具状态更新后自动滚到底部
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, toolStatus]);
@@ -100,13 +148,13 @@ export default function ChatPanel() {
     });
   }
 
-  /** 把检索卡片绑定到最后一条助手消息上 */
+  /** 把后端返回的卡片绑定到最后一条助手消息上 */
   function setLastCards(items: MemoryCardItem[], total: number) {
     setMessages((m) => {
       const copy = [...m];
       const last = copy[copy.length - 1];
       if (last?.role === "assistant") {
-        copy[copy.length - 1] = { ...last, cards: items.slice(0, MAX_CARDS), cardsTotal: total };
+        copy[copy.length - 1] = { ...last, cards: items, cardsTotal: total };
       }
       return copy;
     });
@@ -116,7 +164,6 @@ export default function ChatPanel() {
   function handleAction(action: ClientAction) {
     if (action.type === "navigate") {
       if (pathname.startsWith("/star")) {
-        // 交给星空页播放迷雾过渡后再跳转
         useSpriteStore.getState().requestNavigate(action.path);
       } else {
         router.push(action.path);
@@ -124,7 +171,6 @@ export default function ChatPanel() {
     } else if (action.type === "openUpload") {
       useSpriteStore.getState().openUpload(action.draft);
     } else if (action.type === "forgotten") {
-      // 与按钮删除一致：若当前正在查看被删对象，回到上一层；否则刷新当前页
       if (action.kind === "memory") {
         if (pathname === `/memory/${action.targetId}`) {
           router.push(action.fallbackPath);
@@ -148,7 +194,9 @@ export default function ChatPanel() {
 
   /** 处理单条 SSE 事件 */
   function handleEvent(evt: AgentEvent) {
-    if (evt.type === "text") {
+    if (evt.type === "meta") {
+      rememberConversation(evt.conversationId);
+    } else if (evt.type === "text") {
       appendToLast(evt.delta);
     } else if (evt.type === "tool") {
       setToolStatus(evt.status === "start" ? (TOOL_LABEL[evt.name] ?? "小精灵正在操作…") : null);
@@ -161,31 +209,21 @@ export default function ChatPanel() {
     }
   }
 
-  /** 发送：追加用户消息与空助手占位，然后读取流式回复 */
+  /** 发送：只把会话 id 与输入交给后端，回复流式渲染 */
   async function send() {
     const text = input.trim();
     if (!text || streaming) return;
-    // 历史只带 role/content（卡片等前端状态不发送）
-    const history: Msg[] = [
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content: text },
-    ];
     setInput("");
     setError(null);
     setToolStatus(null);
-    setMessages([...history, { role: "assistant", content: "", cards: [] }]);
+    setMessages((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setStreaming(true);
 
     try {
-      if (!sessionRef.current) sessionRef.current = crypto.randomUUID();
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
-          sessionId: sessionRef.current,
-          categoryId: currentCategoryId(),
-        }),
+        body: JSON.stringify({ conversationId, text, categoryId: currentCategoryId() }),
       });
       if (!res.ok || !res.body) {
         const d = (await res.json().catch(() => ({}))) as { error?: string };
@@ -219,23 +257,73 @@ export default function ChatPanel() {
     }
   }
 
+  /** 打开历史面板并拉取列表 */
+  async function openHistory() {
+    setView("history");
+    try {
+      const res = await fetch("/api/conversations");
+      const d = (await res.json()) as { conversations?: ConversationRow[] };
+      setConversations(d.conversations ?? []);
+    } catch {
+      setConversations([]);
+    }
+  }
+
+  /** 新建会话（回到空白对话） */
+  function newConversation() {
+    rememberConversation(null);
+    setMessages([{ role: "assistant", content: WELCOME }]);
+    setView("chat");
+  }
+
+  if (view === "history") {
+    return (
+      <HistoryPanel
+        conversations={conversations}
+        currentId={conversationId}
+        onOpen={(id) => {
+          setView("chat");
+          void loadConversation(id);
+        }}
+        onChanged={(deletedIds) => {
+          setConversations((list) => list.filter((c) => !deletedIds.includes(c.id)));
+          if (conversationId && deletedIds.includes(conversationId)) newConversation();
+        }}
+        onBack={() => setView("chat")}
+        onNew={newConversation}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-white/10 px-4 py-1.5 text-[11px] text-white/40">
-        使用中：{agentLabel ?? "…"}
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-1.5 text-[11px] text-white/40">
+        <span>使用中：{agentLabel ?? "…"}</span>
+        <button
+          type="button"
+          onClick={() => void openHistory()}
+          className="transition-colors hover:text-white"
+        >
+          历史
+        </button>
       </div>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-            <span
-              className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 ${
-                m.role === "user"
-                  ? "bg-indigo-500/70 text-white"
-                  : "bg-white/10 text-white/90"
-              }`}
-            >
-              {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
-            </span>
+            {m.content && (
+              <span
+                className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 ${
+                  m.role === "user"
+                    ? "bg-indigo-500/70 text-white"
+                    : "bg-white/10 text-white/90"
+                }`}
+              >
+                {m.content}
+              </span>
+            )}
+            {m.role === "assistant" && !m.content && streaming && i === messages.length - 1 && (
+              <span className="inline-block rounded-2xl bg-white/10 px-3 py-2 text-white/60">…</span>
+            )}
             {m.role === "assistant" && m.cards && m.cards.length > 0 && (
               <div className="mt-2 space-y-1.5">
                 {m.cards.map((c) => (
@@ -251,7 +339,7 @@ export default function ChatPanel() {
                 ))}
                 {(m.cardsTotal ?? 0) > m.cards.length && (
                   <p className="text-[11px] text-white/35">
-                    共 {m.cardsTotal} 条，可让小精灵缩小范围
+                    共 {m.cardsTotal} 条，想看其余的可以说「继续」
                   </p>
                 )}
               </div>

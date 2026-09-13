@@ -79,6 +79,32 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
       },
     }),
 
+    showMemories: tool({
+      description:
+        "把筛选好的回忆以卡片形式展示给用户。用法：先用 searchMemories 获取候选，再按用户条件过滤，然后用本工具显式列出本批要展示的回忆 id（每批最多 3 条），并给出符合条件的结果总数 total。不要用它罗列未经筛选的结果；正文不要逐条复述卡片内容。",
+      inputSchema: z.object({
+        memoryIds: z.array(z.string()).describe("本批要展示的回忆 id，最多 3 条"),
+        total: z
+          .number()
+          .optional()
+          .describe("符合用户条件的回忆总数（用于“共 N 条 / 还有 X 条”提示）"),
+      }),
+      execute: ({ memoryIds, total }) => {
+        const byId = new Map(listMemories().map((m) => [m.id, m]));
+        const items = memoryIds
+          .map((id) => byId.get(id))
+          .filter((m): m is Memory => Boolean(m))
+          .slice(0, 3)
+          .map((m) => ({ id: m.id, title: m.title, date: m.date }));
+        return {
+          ok: true,
+          count: items.length,
+          total: Math.max(total ?? items.length, items.length),
+          items,
+        };
+      },
+    }),
+
     navigateToCategory: tool({
       description:
         "让星空界面跳转到某个类别。用户说“带我去某地 / 看看某类”时调用，可按名称或 id。",

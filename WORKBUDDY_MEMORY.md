@@ -91,3 +91,13 @@
 - **用户偏好（重要）**：展示给用户的内容（卡片）应**由后端决定、前端只渲染**；希望**后端持有完整会话**（含工具消息），使模型能感知完整对话、灵活分批/过滤。因此 **Step 6 重定义为**：服务端会话真相源（messages 存完整 AI SDK 消息）+ 前端只渲染 + 卡片由后端决定/分页 + `HistoryPanel`（多会话、多选删除、一键清空）。
 - **已知限制**：`searchMemories` 只支持关键词/类别（含子树）/日期，不支持"排除子类别"，故"不在云南的"这类需求需靠模型检索后自行过滤（新架构下由 `showMemories` 由模型显式指定展示项解决）。
 - 调试用 CDP 脚本在 `/var/folders/.../T/opencode/`（`cdp_chat/cdp_tools/cdp_forget/cdp_cards` 等）；注意 dev 重编译瞬间可能 `ERR_CONNECTION_REFUSED`，reload 即可。
+
+## Step 6：服务端会话真相源（已完成）
+- **架构**：后端持有完整会话，前端只渲染。`/api/agent` 入参 `{ conversationId?, text, categoryId? }`；自动建会话（标题=首条文本截断 20 字）并用 SSE `meta` 事件回传 id/标题；前端只发 `conversationId + text`。
+- **消息持久化**：`messages` 表 = `content`（可读文本，供历史 UI）+ `data`（完整 AI SDK 消息 JSON，含 `tool-call`/`tool-result`，回灌模型）+ `cards`（助手消息的卡片，供历史重开重现）。落库用流结束后的 `await result.responseMessages`，与 user 消息一起 `addMessages`。
+- **卡片由模型决定**：新增 `showMemories({ memoryIds, total })` 工具——模型检索、过滤后**显式列出**本批要展示的 id（服务端 `slice(0,3)` 兜底），并下发 `memories` 事件；`searchMemories` 降为纯数据源、不再产生卡片。模型因能"看到完整会话（含历史工具结果）"，分批时能避开已展示的 id——实测"继续"能给出**不重复**的下一批。
+- **prompt**：检索时一轮最多一次 `searchMemories`；正文 2–3 句概括（数量 + 时间/地点/主题），**禁止逐条罗列**；>3 条时先给 3 条并提示"共 N 条、还有 X 条，说『继续』"；附正/反例。
+- **前端**：`ChatPanel` 以后端为准，`localStorage['sprite:conversationId']` 记住当前会话，打开面板自动拉历史；`HistoryPanel` 提供列表/切换/多选删除/清空（Dialog 确认）/新对话；删除当前会话时自动回到空白对话。
+- **踩坑：Next 16 dev 用 `127.0.0.1` 访问会阻止开发资源**（`/_next/hmr` 等报 "Blocked cross-origin request"），结果 **React 不 hydrate、所有点击/事件失效**（DOM 是 SSR 静态、元素上没有 `__react*` 属性），极易误判为"组件坏了"。**必须用 `http://localhost:3000` 访问**，或给 `next.config` 加 `allowedDevOrigins: ['127.0.0.1']`。判断 hydration 是否正常：检查元素是否有 `__reactProps$...` 属性。
+- **踩坑：`drizzle-kit push` 对 SQLite 加列会报 `no such column: "data"`**（drizzle-kit 的双引号问题）。规避：手动 `DROP/CREATE TABLE`（无有效数据时），再 push 验证无差异。
+- **性能观察**："中国里不在云南的"这类多步任务，`deepseek-v4.1-flash` 约 42s（多次 searchMemories/showMemories，接近 `stopWhen` 上限）；后续可优化 prompt 减少检索轮次。

@@ -130,6 +130,17 @@ export function getCategoryPath(categoryId: string): Category[] {
 
 // ---------- 对话会话 ----------
 
+/** 落库的消息输入 */
+export type MessageInput = {
+  role: string;
+  /** 可读文本：user 输入 / assistant 最终文本 */
+  content?: string;
+  /** 完整 AI SDK 消息（JSON 结构），回灌模型时使用 */
+  data?: unknown;
+  /** 检索卡片（仅 assistant 消息） */
+  cards?: unknown;
+};
+
 export function listConversations(): Conversation[] {
   return db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
 }
@@ -151,6 +162,10 @@ export function touchConversation(id: string, title?: string): void {
   db.update(conversations).set(patch).where(eq(conversations.id, id)).run();
 }
 
+export function renameConversation(id: string, title: string): void {
+  db.update(conversations).set({ title }).where(eq(conversations.id, id)).run();
+}
+
 export function listMessages(conversationId: string): Message[] {
   return db
     .select()
@@ -160,10 +175,35 @@ export function listMessages(conversationId: string): Message[] {
     .all();
 }
 
-export function addMessage(conversationId: string, role: string, content: string): Message {
-  const row = { id: crypto.randomUUID(), conversationId, role, content, createdAt: Date.now() };
-  db.insert(messages).values(row).run();
-  return row;
+/** 批量追加消息（一轮对话可能包含 assistant + tool 多条） */
+export function addMessages(conversationId: string, items: MessageInput[]): Message[] {
+  const now = Date.now();
+  const rows: Message[] = items.map((it, i) => ({
+    id: crypto.randomUUID(),
+    conversationId,
+    role: it.role,
+    content: it.content ?? "",
+    data: it.data === undefined ? null : JSON.stringify(it.data),
+    cards: it.cards === undefined ? null : JSON.stringify(it.cards),
+    createdAt: now + i,
+  }));
+  if (rows.length > 0) db.insert(messages).values(rows).run();
+  return rows;
+}
+
+/** 取会话及其全部消息（按时间升序） */
+export function getConversationWithMessages(
+  id: string,
+): { conversation: Conversation; messages: Message[] } | null {
+  const conversation = getConversation(id);
+  if (!conversation) return null;
+  return { conversation, messages: listMessages(id) };
+}
+
+/** 删除单个会话（连带其消息） */
+export function deleteConversation(id: string): void {
+  db.delete(messages).where(eq(messages.conversationId, id)).run();
+  db.delete(conversations).where(eq(conversations.id, id)).run();
 }
 
 /** 多选删除会话（连带其消息） */

@@ -214,8 +214,10 @@ ai_try/
 
 ### 12.5 状态
 - **Step 0–5 完成**：依赖、数据层（含 settings 加密）、接口、设置 UI、流式对话、工具与动作；另含用户追加的 `openMemory`、遗忘工具、搜索卡片、过渡优化。
-- **Step 6 重定义（重做计划）**：原计划仅「存文本 + 历史列表 UI」，现结合需求升级为：
-  1. **服务端会话真相源**：`messages` 存**完整 AI SDK 消息（含 tool-call/tool-result）**；前端 `send` 只发 `conversationId` + 输入，打开面板从后端拉历史，前端**只渲染**。
-  2. **卡片由后端决定与分页**：后端决定每批展示条目（≤3）与 total；模型因"看得到完整会话"可分批、过滤、调整；前端不持有分页/已展示状态。
-  3. `conversations`/`messages` API（列表 / 新建 / 多选删除 / 一键清空）与多会话历史面板 `HistoryPanel`。
-- **Step 7 收尾**：降级/文档/`tsc`+`lint`/提交（未做）。
+- **Step 6 完成（服务端会话真相源）**：
+  1. `messages` 表存**完整 AI SDK 消息**（`data` JSON，含 `tool-call`/`tool-result`）与可读 `content`；`cards` 记录助手消息的卡片结果（历史重开时重现）。
+  2. `/api/agent` 入参改为 `{ conversationId?, text, categoryId? }`：自动建会话、回灌完整历史、流结束后把 `responseMessages` 落库；SSE 新增 `meta` 事件回传会话 id/标题。
+  3. 新增 `showMemories` 工具：模型检索、过滤后**显式指定**展示条目（每批 ≤3，服务端兜底），卡片由此下发；`searchMemories` 降为数据源。正文要求 2–3 句概括 + 分批提示。
+  4. `conversations` API（列表 / 详情 / 多选删除 / 一键清空）与 `HistoryPanel`（列表、切换、多选删除、清空、新对话）。
+  5. 前端 `ChatPanel` 只渲染后端内容：仅发 `conversationId + text`，`localStorage` 记住当前会话，刷新自动恢复。
+- **Step 7 收尾**：降级、`.env.example`（`AGENT_SECRET`）、文档、最终 `tsc`+`lint`/提交（待做）。

@@ -35,12 +35,17 @@ export const conversations = sqliteTable("conversations", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-// 会话内的消息（仅存 user/assistant 最终文本）
+// 会话内的消息（存完整 AI SDK 消息，含工具调用；content 为可读文本供历史展示）
 export const messages = sqliteTable("messages", {
   id: text("id").primaryKey(),
   conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(),
-  content: text("content").notNull(),
+  /** 可读文本：user 输入 / assistant 最终文本；tool 消息为空 */
+  content: text("content").notNull().default(""),
+  /** 完整 AI SDK 消息（JSON），回灌模型时使用 */
+  data: text("data"),
+  /** 该助手消息的检索卡片（JSON），供历史重开时重现 */
+  cards: text("cards"),
   createdAt: integer("created_at").notNull(),
 });
 
