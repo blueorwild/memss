@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
+import { useSpriteStore } from "@/store/sprite";
 import StarBackground from "./StarBackground";
 import Breadcrumb from "./Breadcrumb";
 import CategoryStars from "./CategoryStars";
@@ -33,6 +34,8 @@ export default function StarfieldPage({
   breadcrumb: Category[];
 }) {
   const router = useRouter();
+  const navRequest = useSpriteStore((s) => s.navRequest);
+  const clearNavRequest = useSpriteStore((s) => s.clearNavRequest);
   const [zoom, setZoom] = useState<{ id: string; x: number; y: number } | null>(null);
   const [delOpen, setDelOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -75,21 +78,41 @@ export default function StarfieldPage({
     return () => window.removeEventListener("keydown", onKey);
   }, [path, router]);
 
+  // 响应小精灵的导航请求：从屏幕中心播放迷雾过渡后跳转
+  useEffect(() => {
+    if (!navRequest) return;
+    const showFog = window.setTimeout(() => {
+      setZoom({ id: "nav", x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      useSpriteStore.getState().setSceneTransitioning(true);
+      window.setTimeout(() => useSpriteStore.getState().setSceneTransitioning(false), 600);
+    }, 0);
+    const go = window.setTimeout(() => {
+      router.push(navRequest);
+      clearNavRequest();
+    }, 120);
+    return () => {
+      window.clearTimeout(showFog);
+      window.clearTimeout(go);
+    };
+  }, [navRequest, router, clearNavRequest]);
+
   function onSelectCategory(id: string, e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setZoom({ id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    useSpriteStore.getState().setSceneTransitioning(true);
+    window.setTimeout(() => useSpriteStore.getState().setSceneTransitioning(false), 600);
     window.setTimeout(() => {
       router.push(`/star/${[...path, id].join("/")}`);
-    }, 100);
+    }, 120);
   }
 
   const spots = useMemo(() => {
     if (!zoom) return [];
     const rnd = mulberry32(hashSeed(`glow:${zoom.id}`));
-    return Array.from({ length: 5 }, () => ({
-      dx: (rnd() - 0.5) * 320,
-      dy: (rnd() - 0.5) * 320,
-      size: 140 + rnd() * 200,
+    return Array.from({ length: 3 }, () => ({
+      dx: (rnd() - 0.5) * 300,
+      dy: (rnd() - 0.5) * 300,
+      size: 120 + rnd() * 160,
       delay: rnd() * 0.03,
     }));
   }, [zoom]);
@@ -161,7 +184,7 @@ export default function StarfieldPage({
               className="pointer-events-none fixed inset-0 z-40 bg-[#070a14]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.1 }}
-              transition={{ duration: 0.1, ease: "easeOut" }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
             />
             <motion.div
               key="fog-core"
@@ -175,13 +198,13 @@ export default function StarfieldPage({
                 height: 340,
                 borderRadius: "50%",
                 background:
-                  "radial-gradient(circle, rgba(215,230,255,0.4) 0%, rgba(150,185,255,0.2) 30%, rgba(120,160,255,0.05) 60%, rgba(120,160,255,0) 80%)",
-                filter: "blur(14px)",
-                mixBlendMode: "screen",
+                  "radial-gradient(circle, rgba(215,230,255,0.45) 0%, rgba(150,185,255,0.22) 26%, rgba(120,160,255,0.08) 48%, rgba(120,160,255,0.02) 66%, rgba(120,160,255,0) 82%)",
+                willChange: "transform, opacity",
+                transform: "translateZ(0)",
               }}
               initial={{ scale: 0.2, opacity: 1 }}
-              animate={{ scale: 12, opacity: 1 }}
-              transition={{ duration: 0.1, ease: "easeOut" }}
+              animate={{ scale: 7, opacity: 1 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
             />
             {spots.map((s, i) => (
               <motion.div
@@ -196,13 +219,13 @@ export default function StarfieldPage({
                   height: s.size,
                   borderRadius: "50%",
                   background:
-                    "radial-gradient(circle, rgba(170,200,255,0.2) 0%, rgba(120,160,255,0) 70%)",
-                  filter: "blur(18px)",
-                  mixBlendMode: "screen",
+                    "radial-gradient(circle, rgba(170,200,255,0.22) 0%, rgba(150,185,255,0.08) 40%, rgba(120,160,255,0) 72%)",
+                  willChange: "transform, opacity",
+                  transform: "translateZ(0)",
                 }}
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 5, opacity: 0.3 }}
-                transition={{ duration: 0.1, delay: s.delay, ease: "easeOut" }}
+                animate={{ scale: 4, opacity: 0.3 }}
+                transition={{ duration: 0.18, delay: s.delay, ease: "easeOut" }}
               />
             ))}
           </>

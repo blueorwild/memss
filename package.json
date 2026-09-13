@@ -11,8 +11,10 @@
     "build:geo": "node scripts/build-geo.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.48",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.23",
+    "ai": "^7.0.99",
     "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -22,6 +24,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0",
+    "zod": "^4.6.2",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

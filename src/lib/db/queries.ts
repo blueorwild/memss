@@ -1,7 +1,7 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./index";
-import { categories, media, memories } from "./schema";
-import type { Category, Media, Memory } from "./schema";
+import { categories, conversations, media, memories, messages, settings } from "./schema";
+import type { Category, Conversation, Media, Memory, Message } from "./schema";
 
 export type { Category, Media, Memory };
 
@@ -126,4 +126,69 @@ export function getCategoryPath(categoryId: string): Category[] {
     cur = cur.parentId ? byId.get(cur.parentId) : undefined;
   }
   return path;
+}
+
+// ---------- 对话会话 ----------
+
+export function listConversations(): Conversation[] {
+  return db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all();
+}
+
+export function getConversation(id: string): Conversation | null {
+  return db.select().from(conversations).where(eq(conversations.id, id)).get() ?? null;
+}
+
+export function createConversation(title: string): Conversation {
+  const now = Date.now();
+  const row = { id: crypto.randomUUID(), title, createdAt: now, updatedAt: now };
+  db.insert(conversations).values(row).run();
+  return row;
+}
+
+export function touchConversation(id: string, title?: string): void {
+  const patch: { updatedAt: number; title?: string } = { updatedAt: Date.now() };
+  if (title !== undefined) patch.title = title;
+  db.update(conversations).set(patch).where(eq(conversations.id, id)).run();
+}
+
+export function listMessages(conversationId: string): Message[] {
+  return db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt))
+    .all();
+}
+
+export function addMessage(conversationId: string, role: string, content: string): Message {
+  const row = { id: crypto.randomUUID(), conversationId, role, content, createdAt: Date.now() };
+  db.insert(messages).values(row).run();
+  return row;
+}
+
+/** 多选删除会话（连带其消息） */
+export function deleteConversations(ids: string[]): void {
+  if (ids.length === 0) return;
+  db.delete(messages).where(inArray(messages.conversationId, ids)).run();
+  db.delete(conversations).where(inArray(conversations.id, ids)).run();
+}
+
+/** 一键清空全部会话与消息 */
+export function clearConversations(): void {
+  db.delete(messages).run();
+  db.delete(conversations).run();
+}
+
+// ---------- 键值设置 ----------
+
+export function getSetting(key: string): string | null {
+  const row = db.select().from(settings).where(eq(settings.key, key)).get();
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  db.insert(settings)
+    .values({ key, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } })
+    .run();
 }

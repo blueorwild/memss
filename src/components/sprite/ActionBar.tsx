@@ -7,12 +7,14 @@ import type { SpriteView } from "@/store/sprite";
 const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
   { key: "chat", label: "对话", icon: "✦" },
   { key: "upload", label: "上传回忆", icon: "＋" },
+  { key: "settings", label: "设置", icon: "⚙" },
 ];
 
-/** 小精灵功能按钮栏：切换对话 / 上传回忆 */
+/** 小精灵功能按钮栏：切换对话 / 上传回忆 / 设置 */
 export default function ActionBar() {
   const view = useSpriteStore((s) => s.view);
   const openView = useSpriteStore((s) => s.openView);
+  const openUpload = useSpriteStore((s) => s.openUpload);
 
   return (
     <div className="flex gap-2 border-b border-white/10 px-4 py-2">
@@ -20,7 +22,7 @@ export default function ActionBar() {
         <button
           key={it.key}
           type="button"
-          onClick={() => openView(it.key)}
+          onClick={() => (it.key === "upload" ? openUpload() : openView(it.key))}
           className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
             view === it.key
               ? "bg-white/15 text-white"

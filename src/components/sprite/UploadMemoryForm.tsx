@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { Category } from "@/lib/db/queries";
 import CategoryPicker from "@/components/ui/category-picker";
 import NewCategoryDialog from "@/components/ui/new-category-dialog";
+import { useSpriteStore } from "@/store/sprite";
 
 /** 从当前 URL 解析所处类别 id：/star/a/b → "b" */
 function currentCategoryFromPath(pathname: string): string | null {
@@ -29,12 +30,15 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const uploadDraft = useSpriteStore((s) => s.uploadDraft);
+  const clearUploadDraft = useSpriteStore((s) => s.clearUploadDraft);
+
   const [serverCategories, setServerCategories] = useState<Category[]>([]);
   const [drafts, setDrafts] = useState<Category[]>([]);
   const [categoryId, setCategoryId] = useState("");
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(uploadDraft?.title ?? "");
+  const [date, setDate] = useState(uploadDraft?.date ?? "");
+  const [description, setDescription] = useState(uploadDraft?.description ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +74,10 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
         if (!alive) return;
         setServerCategories(list);
         const cur = currentCategoryFromPath(pathname);
-        setCategoryId(cur && list.some((c) => c.id === cur) ? cur : (list[0]?.id ?? ""));
+        const preferred = uploadDraft?.categoryId ?? cur;
+        setCategoryId(
+          preferred && list.some((c) => c.id === preferred) ? preferred : (list[0]?.id ?? ""),
+        );
       })
       .catch(() => {
         if (alive) setError("类别加载失败");
@@ -78,7 +85,7 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
     return () => {
       alive = false;
     };
-  }, [pathname]);
+  }, [pathname, uploadDraft]);
 
   /** 新建类别（草稿）：加入本地列表并选中；提交时才落库 */
   function handleDraftCreated(draft: Category) {
@@ -159,6 +166,7 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
       }
       // 刷新当前页，让新回忆出现在星空里
       router.refresh();
+      clearUploadDraft();
       onDone?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "上传失败");

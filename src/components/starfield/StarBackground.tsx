@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useSpriteStore } from "@/store/sprite";
 
 type Star = { x: number; y: number; z: number; r: number; tw: number };
 
@@ -39,7 +40,15 @@ export default function StarBackground() {
       }));
     }
 
+    let frame = 0;
     function draw(t: number) {
+      raf = requestAnimationFrame(draw);
+      // 场景过渡期间暂停，减轻合成压力
+      if (useSpriteStore.getState().sceneTransitioning) return;
+      // 常态下每 2 帧绘制一次，降低开销
+      frame += 1;
+      if (frame % 2 !== 0) return;
+
       ctx!.clearRect(0, 0, w, h);
       mx += (tx - mx) * 0.05;
       my += (ty - my) * 0.05;
@@ -52,7 +61,6 @@ export default function StarBackground() {
         ctx!.fillStyle = `rgba(220,235,255,${alpha * s.z})`;
         ctx!.fill();
       }
-      raf = requestAnimationFrame(draw);
     }
 
     const onMove = (e: MouseEvent) => {

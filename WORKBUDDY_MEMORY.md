@@ -67,3 +67,27 @@
 - **SVG 坐标要取整**：`Math.cos` 在 Node 与 Chrome 浮点末位不同，会导致 SVG 属性 hydration mismatch（曾报 1 Issue）→ 坐标统一 `Math.round(n*1000)/1000`。
 - 回忆详情页 `‹ ›` 切图按钮放在**图片外侧**（flex 行），不在图片内。
 - 星星钻入迷雾调淡（核心 0.5 / 背景 0.3 / 光斑 0.4）并缩短到 200ms；种子「东京」补至 10 条用于演示滚筒与流光标。
+- **弃用 shadcn，改最小依赖**：曾尝试 `shadcn init`，但它会重写 `globals.css`（去掉 `prefers-color-scheme: dark`、引入 base-ui 变量），使 `body` 变白 → 记忆页淡入淡出**闪屏**、星空/动画异常，遂整体回退。UI 基础改为 `@radix-ui/react-popover` + `@radix-ui/react-dialog` + `cmdk` + `clsx` + `tailwind-merge`，自写 `components/ui/{popover,dialog,combobox}.tsx`，**纯 Tailwind、绝不碰 `globals.css`**。
+- **Dialog 内不要用 Portal 的 Popover**：Radix Dialog 的 focus trap 会拦截渲染到 `<body>` 的下拉，表现为「点不动/输不进去」。改为在 Dialog 内用**内联 cmdk 列表**。
+- **AudioContext 与 React StrictMode 冲突**：dev 下 effect `mount→cleanup→mount` 双跑，cleanup 里 `ctx.close()` 后 ref 未置空 → 复用已关闭 ctx 抛 `InvalidStateError`（`Cannot close a closed AudioContext`）；且 `createMediaElementSource` 对同一 `<audio>` 只能调用一次，「关闭后重建」不可行。**音乐淡入淡出改用 `<audio>.volume` + `requestAnimationFrame`**（配 `playSeqRef` 播放序号防竞态）。
+- **类别即地点**：上传表单只选一次「类别级联」（`CategoryPicker`：从地球逐级下钻，**任意层可选中、可新建**）；`location` 由类别路径自动生成（去根「地球」）。层级**含地球共 5 级**：地球→国家→省→市→用户自建；任意节点可挂回忆、可新建子级。
+- **新建类别「延迟创建」**：弹层只生成草稿类别（id 前缀 `draft-`）加入本地列表，**提交上传时**才把选中类别链上的草稿从根到叶依次 `POST`，同级同名自动复用；未上传则不留痕（解决「新建后没上传留下空类别」）。
+- **空类别可点击**：`CategoryStars` 把「可交互」与「视觉」拆开——所有星恒可点；视觉按 `memoryCount>0` 区分（有回忆=亮星+白粒子，空=暗星无粒子，但可点、hover 提亮）。
+- **删除类别 = 遗忘**：`DELETE /api/categories/[id]?mode=purge|move`；根「地球」不可删；级联整个子树。`purge` 一并删回忆+媒体文件，`move` 把回忆迁移到父类别。入口在星空页右上角。
+- **页面头部统一**：面包屑在左 + 下方 `← 返回`（**根「地球」页隐藏返回**）；右上角危险操作统一叫「遗忘」。
+- **地理数据**：`world-countries`（国家中文名，250）+ `china-division`（省市）→ `npm run build:geo` 生成 `public/geo/{countries,china}.json`（共 ~16KB），前端懒加载，供新建类别候选（地球下=国家；中国下=省；中国省下=市）。
+
+## P4 Agent 能力（进行中）
+- **选型**：`ai@7` + `@ai-sdk/openai-compatible@3` + `zod@4`，**不用 `@ai-sdk/react`**（前端手写 SSE，零额外依赖）。`streamText` + `tools` + `stopWhen: isStepCount(8)`，多步工具调用由 AI SDK 自动完成；服务端遍历 `result.fullStream`（`text-delta`/`tool-call`/`tool-result`/`tool-error`/`error`）编码为 SSE。
+- **SSE 事件协议**（自定义，简单）：`text`(delta) / `tool`(name,status) / `action`(客户端动作) / `memories`(卡片) / `error` / `done`。注意下发动作要包一层 `{type:"action", action:{...}}`，否则 `action.type` 会被内层覆盖。
+- **Provider 收敛为 `deepseek | opencode-go`**；`baseURL`/`headers` 属内部适配**不暴露**给用户，用户只选服务 + 填 key + 选模型。OpenCode Go 需 `x-opencode-session`（按对话注入）与自定义 UA；其 `/models` 可匿名拉取。
+- **密钥加密入库**：AES-256-GCM（`lib/crypto.ts`）；主密钥优先 `AGENT_SECRET`，本地回退自动生成 `data/secret.key`（600）。`GET /api/settings` 只回传掩码；`apiKey` 留空=不改、null=清除。换主密钥会导致旧密文无法解密。
+- **设置面板**：可折叠区块（`SettingsSection`，首块「模型服务」默认收起），模型用 `Combobox` 搜索选择、默认选列表第一项；对话面板顶部显示「使用中：服务 · 模型」，设置内用绿点标「使用中」区分生效 vs 编辑；保存按钮文案「保存并启用」。
+- **工具集**（`lib/agent-tools.ts`）：`searchMemories`（数据源）/`navigateToCategory`/`openMemory`/`uploadMemory`/`forgetMemory`/`forgetCategory`。删除类工具**二次确认双保险**：工具 `confirm` 参数 **且** 服务端校验「最后一条用户消息含确认词」才执行，未确认只返回待确认信息。
+- **删除逻辑复用**：抽出 `lib/db/mutations.ts`（`deleteMemoryById`/`deleteCategoryById`/`collectSubtree`），API 路由与工具共用；类别含回忆时给 `move`/`purge` 选项。
+- **前端动作**：`navigate`（星空页走迷雾过渡）/`openUpload`（切上传视图并预填）/`forgotten`（与按钮一致：当前正在看被删对象则回上一层，否则刷新）。导航请求经 `store.navRequest` 由 `StarfieldPage` 消费播放迷雾。
+- **搜索卡片**：`memories` 事件；卡片**绑定到当前 assistant 消息**（不是全局 state，避免跨轮残留/错位），最多 3 条 + 「共 N 条」。曾因"服务端每次 tool-result 就下发、前端覆盖"导致卡片与文字错位 → 改为服务端聚合去重、`done` 前单次下发。prompt 要求：正文 2–3 句概括、**禁止逐条罗列**、一轮最多检索一次。
+- **过渡性能**：去掉大尺寸 `filter: blur` 与 `mixBlendMode`（径向渐变本身够柔），光斑 5→3，加 `willChange`/`translateZ`，`scale 12→7`、时长 `0.1→0.18s`；星空 canvas 每 2 帧绘制 + `sceneTransitioning` 期间暂停。
+- **用户偏好（重要）**：展示给用户的内容（卡片）应**由后端决定、前端只渲染**；希望**后端持有完整会话**（含工具消息），使模型能感知完整对话、灵活分批/过滤。因此 **Step 6 重定义为**：服务端会话真相源（messages 存完整 AI SDK 消息）+ 前端只渲染 + 卡片由后端决定/分页 + `HistoryPanel`（多会话、多选删除、一键清空）。
+- **已知限制**：`searchMemories` 只支持关键词/类别（含子树）/日期，不支持"排除子类别"，故"不在云南的"这类需求需靠模型检索后自行过滤（新架构下由 `showMemories` 由模型显式指定展示项解决）。
+- 调试用 CDP 脚本在 `/var/folders/.../T/opencode/`（`cdp_chat/cdp_tools/cdp_forget/cdp_cards` 等）；注意 dev 重编译瞬间可能 `ERR_CONNECTION_REFUSED`，reload 即可。

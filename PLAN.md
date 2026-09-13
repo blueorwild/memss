@@ -154,8 +154,8 @@ ai_try/
 | P0 环境 ✅ | 安装 nvm + Node、初始化 Next.js、Drizzle + SQLite 跑通 | 0.5d |
 | P1 数据 + 最简呈现 ✅ | schema、种子数据、回忆详情页（图/文/乐）；上传 API 顺延至 P3 | 3–4d |
 | P2 星空导航 ✅ | 分类树、星区、3D 滚筒回忆、镜头推进、面包屑 | 5–6d |
-| P3 小精灵 | 悬浮组件、对话面板、流式输出、功能按钮框架、上传回忆表单 | 5–6d |
-| P4 Agent 能力 | Provider 配置化、tool calling（检索/导航/上传）、与星空联动 | 4–5d |
+| P3 小精灵 ✅ | 悬浮组件、对话面板、流式输出、功能按钮框架、上传回忆表单 | 5–6d |
+| P4 Agent 能力 🔄 | Provider 配置化、tool calling（检索/导航/上传/遗忘）、与星空联动 | 4–5d |
 | P5 打磨 | 动效、音效、性能、响应式 | 余量 |
 
 > 说明：里程碑顺序按「先跑通数据与呈现，再叠加智能体」排列，保证每阶段都有可验收产物。
@@ -180,3 +180,42 @@ ai_try/
 - **路由**：`/star/[...path]`；`/` 重定向 `/star/globe`；`Esc` / 面包屑 / 返回按钮上级。
 - **技术**：CSS 3D transform 实现滚筒；zustand 状态；`lib/layout-seed.ts` 提供确定性伪随机与柱面坐标。
 - **验收**：`/star/globe` → 点「日本」→ `/star/globe/jp` → 「东京」→ 滚筒显示回忆；点击缩略图进详情。
+
+## 12. P4 实施记录（Agent 能力）
+
+### 12.1 技术选型
+- `ai@7` + `@ai-sdk/openai-compatible@3` + `zod@4`；**不引入 `@ai-sdk/react`**（前端手写 SSE 解析，前端零额外依赖）。
+- 服务端 `/api/agent` 用 `streamText({ tools, stopWhen: isStepCount(8) })`，工具多步调用由 AI SDK 自动完成；遍历 `result.fullStream` 自行编码为 SSE。
+
+### 12.2 Provider 与设置
+- 内置服务收敛为 **DeepSeek** 与 **OpenCode Go**（`ProviderId = "deepseek" | "opencode-go"`）；`baseURL` / `headers` 属内部适配，**不暴露给用户**，用户只需选服务、填 API Key、选模型。
+- OpenCode Go 需 `x-opencode-session`（服务端按对话注入）与自定义 UA。
+- **密钥加密入库**：AES-256-GCM（`lib/crypto.ts`），主密钥优先环境变量 `AGENT_SECRET`，本地回退自动生成 `data/secret.key`（600，gitignore）。`GET /api/settings` 只回传掩码。
+- 模型列表经 `GET /api/agent/models?providerId=` 服务端代理获取，前端用 Combobox 搜索选择；模型列表加载失败可手填。
+- 设置面板为**可折叠区块**结构（首块「模型服务」默认收起），对话面板顶部显示「使用中：服务 · 模型」，设置内以「使用中」绿点区分生效 vs 编辑。
+
+### 12.3 工具集（`lib/agent-tools.ts`）
+| 工具 | 作用 | 前端动作 |
+|---|---|---|
+| `searchMemories` | 关键词/类别/日期检索（数据源） | — |
+| `navigateToCategory` | 跳转到类别（名称或 id） | `navigate` |
+| `openMemory` | 打开某条回忆详情 | `navigate` |
+| `uploadMemory` | 打开上传面板并预填 | `openUpload` |
+| `forgetMemory` | 遗忘回忆（二次确认） | `forgotten` |
+| `forgetCategory` | 遗忘类别（含回忆时选 move/purge，二次确认） | `forgotten` |
+
+- 二次确认：工具 `confirm` 参数 **且** 服务端校验「最后一条用户消息含确认词」才执行；未确认时只返回待确认信息。
+- 动作通过 `action` 事件下发；`navigate` 在星空页走**迷雾过渡**，`forgotten` 与按钮删除行为一致（当前正在看被删对象则回上一层，否则刷新）。
+- 搜索卡片：`memories` 事件绑定到当前 assistant 消息、最多展示 3 条；正文只做 2–3 句概括，禁止逐条罗列。
+
+### 12.4 过渡性能优化
+- 移除大尺寸 `filter: blur` 与 `mixBlendMode`，光斑 5→3，加 `willChange`/`translateZ`，`scale 12→7`、时长 `0.1→0.18s`。
+- 星空 canvas 改为每 2 帧绘制一次，并在 `sceneTransitioning` 期间暂停。
+
+### 12.5 状态
+- **Step 0–5 完成**：依赖、数据层（含 settings 加密）、接口、设置 UI、流式对话、工具与动作；另含用户追加的 `openMemory`、遗忘工具、搜索卡片、过渡优化。
+- **Step 6 重定义（重做计划）**：原计划仅「存文本 + 历史列表 UI」，现结合需求升级为：
+  1. **服务端会话真相源**：`messages` 存**完整 AI SDK 消息（含 tool-call/tool-result）**；前端 `send` 只发 `conversationId` + 输入，打开面板从后端拉历史，前端**只渲染**。
+  2. **卡片由后端决定与分页**：后端决定每批展示条目（≤3）与 total；模型因"看得到完整会话"可分批、过滤、调整；前端不持有分页/已展示状态。
+  3. `conversations`/`messages` API（列表 / 新建 / 多选删除 / 一键清空）与多会话历史面板 `HistoryPanel`。
+- **Step 7 收尾**：降级/文档/`tsc`+`lint`/提交（未做）。

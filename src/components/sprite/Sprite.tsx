@@ -6,6 +6,7 @@ import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
+import SettingsPanel from "./SettingsPanel";
 import UploadMemoryForm from "./UploadMemoryForm";
 
 /** 悬浮球直径与视口边距 */
@@ -267,7 +268,13 @@ export default function Sprite() {
             </header>
             <ActionBar />
             <div className="min-h-0 flex-1">
-              {view === "chat" ? <ChatPanel /> : <UploadMemoryForm onDone={close} />}
+              {view === "chat" ? (
+                <ChatPanel />
+              ) : view === "upload" ? (
+                <UploadMemoryForm onDone={close} />
+              ) : (
+                <SettingsPanel />
+              )}
             </div>
           </motion.div>
         )}
