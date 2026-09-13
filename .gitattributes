@@ -1,0 +1,19 @@
+# 统一文本换行，避免跨平台（Windows/macOS）差异
+* text=auto eol=lf
+
+# 媒体/二进制文件不做换行转换
+*.wav binary
+*.mp3 binary
+*.m4a binary
+*.flac binary
+*.ogg binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+
+# SVG 是文本，保留
+*.svg text

@@ -101,3 +101,14 @@
 - **踩坑：Next 16 dev 用 `127.0.0.1` 访问会阻止开发资源**（`/_next/hmr` 等报 "Blocked cross-origin request"），结果 **React 不 hydrate、所有点击/事件失效**（DOM 是 SSR 静态、元素上没有 `__react*` 属性），极易误判为"组件坏了"。**必须用 `http://localhost:3000` 访问**，或给 `next.config` 加 `allowedDevOrigins: ['127.0.0.1']`。判断 hydration 是否正常：检查元素是否有 `__reactProps$...` 属性。
 - **踩坑：`drizzle-kit push` 对 SQLite 加列会报 `no such column: "data"`**（drizzle-kit 的双引号问题）。规避：手动 `DROP/CREATE TABLE`（无有效数据时），再 push 验证无差异。
 - **性能观察**："中国里不在云南的"这类多步任务，`deepseek-v4.1-flash` 约 42s（多次 searchMemories/showMemories，接近 `stopWhen` 上限）；后续可优化 prompt 减少检索轮次。
+
+## 1.0 上线路线图（已定，见 PLAN.md §13）
+- **部署方案**：家里另一台 **Windows x86 + Docker(WSL2)** 常开机器 + **Cloudflare Tunnel**（自购域名托管 CF，不用 Vercel——需 SQLite 持久化 + 本地媒体 + 长流式请求）。
+- **访问保护**：**应用内密码**（middleware + 登录页 + 签名 cookie），不用 Cloudflare Access。
+- **数据**：部署机与开发机都**重新 seed**，不迁移 `data/`（因此 API Key 需在新机重填）。
+- **手机端 1.0 范围**：导航/看回忆/上传/对话/历史。
+- **Phase**：1) Agent 优化（`searchMemories` 补 `location`、减检索轮次、空文本兜底、停止按钮、SSE 重试）→ 2) 移动端适配（底部抽屉、触控、音频解锁、降载）→ 3) 部署改造（`MEDIA_ROOT` 可配、密码保护、`output: standalone`、`/api/health`、Dockerfile+compose）→ 4) Windows 上机 + Cloudflare（域名/隧道/SSL/自启/手机验收）→ 5) 维护备份。
+- **工作方式调整**：用户将**手动把项目上传到 GitHub 私有仓库**，然后**转移到另一台 Windows 电脑上继续开发**；**Phase 1 由用户在新机上进行**（我在本机先完成文档 + 迁移修复）。
+- **迁移修复（已做）**：① `data/.gitkeep` + `src/lib/db/index.ts` 在连接前 `mkdirSync` 兜底（原来 `/data` 整体被忽略，新机 clone 后无目录会打不开 DB）；② `.gitattributes`（`* text=auto eol=lf` + 二进制媒体标记）；③ `.env.example`（`.gitignore` 加 `!.env.example`）；④ `.gitignore` 改 `/data/*` + `!/data/.gitkeep`。
+- **迁移注意**：新机装 Git + Node 24；`npm ci`（`better-sqlite3` 若报编译错需装 VS Build Tools）；`.env` 需手动建；**dev 用 `http://localhost:3000`，勿用 `127.0.0.1`**（Next 16 会拦开发资源导致 React 不 hydrate）；`data/` 与 `media/uploads/` 不入库。
+- **GitHub 上传提醒**：只上报 `git` 能跟踪的内容；**不要用网页拖拽上传**（不受 `.gitignore` 保护，会带上 `data/`、`.env`、`node_modules`）；仓库设 **Private**；项目无大文件，无需 LFS。

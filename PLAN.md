@@ -155,8 +155,8 @@ ai_try/
 | P1 数据 + 最简呈现 ✅ | schema、种子数据、回忆详情页（图/文/乐）；上传 API 顺延至 P3 | 3–4d |
 | P2 星空导航 ✅ | 分类树、星区、3D 滚筒回忆、镜头推进、面包屑 | 5–6d |
 | P3 小精灵 ✅ | 悬浮组件、对话面板、流式输出、功能按钮框架、上传回忆表单 | 5–6d |
-| P4 Agent 能力 🔄 | Provider 配置化、tool calling（检索/导航/上传/遗忘）、与星空联动 | 4–5d |
-| P5 打磨 | 动效、音效、性能、响应式 | 余量 |
+| P4 Agent 能力 ✅ | Provider 配置化、tool calling（检索/导航/上传/遗忘）、与星空联动 | 4–5d |
+| P5 打磨 | 动效、音效、性能、响应式（并入 §13 1.0 上线路线图） | 余量 |
 
 > 说明：里程碑顺序按「先跑通数据与呈现，再叠加智能体」排列，保证每阶段都有可验收产物。
 
@@ -220,4 +220,54 @@ ai_try/
   3. 新增 `showMemories` 工具：模型检索、过滤后**显式指定**展示条目（每批 ≤3，服务端兜底），卡片由此下发；`searchMemories` 降为数据源。正文要求 2–3 句概括 + 分批提示。
   4. `conversations` API（列表 / 详情 / 多选删除 / 一键清空）与 `HistoryPanel`（列表、切换、多选删除、清空、新对话）。
   5. 前端 `ChatPanel` 只渲染后端内容：仅发 `conversationId + text`，`localStorage` 记住当前会话，刷新自动恢复。
-- **Step 7 收尾**：降级、`.env.example`（`AGENT_SECRET`）、文档、最终 `tsc`+`lint`/提交（待做）。
+- **Step 7 收尾**：部分完成（`.env.example`、`.gitattributes`、迁移路径修复见 §13）；部署与访问保护纳入 1.0 上线路线图。
+
+## 13. 1.0 上线路线图（部署公网 + 手机访问）
+
+### 13.1 已确认方案
+- **目标机器**：Windows x86 + Docker（WSL2）。
+- **隧道**：Cloudflare Tunnel（自购域名并托管 Cloudflare）。不用 Vercel/Vercel 类 serverless：本项目依赖 SQLite 持久化、本地媒体文件与长流式请求，需常驻 Node + 持久卷。
+- **访问保护**：应用内密码（`middleware` + 登录页 + 签名 cookie）。
+- **数据**：部署机与开发机均重新 seed，不迁移 `data/`。
+- **手机端 1.0 范围**：导航 / 看回忆 / 上传 / 对话 / 历史。
+
+### 13.2 Phase 1 — Agent 准确性与体验优化（在新 Windows 开发机进行）
+1. `searchMemories` 结果增加 `location`（+类别名），让模型能直接判断"是否在某地"，减少多轮检索（现状同类问题约 40s+）。
+2. prompt 收紧检索策略（先一次尽量查全，再过滤），避免逼近 `stopWhen(8)`。
+3. 助手空文本兜底：仅调工具未输出时给一句提示。
+4. 流式期间「停止」按钮（`AbortController`）；发送中锁定历史切换。
+5. SSE 断开/超时的错误提示与重试。
+6. 媒体缩略图与懒加载（部分性能）。
+
+### 13.3 Phase 2 — 移动端适配
+1. 小精灵面板窄屏改**底部抽屉/全宽**（`100dvh` + `safe-area-inset`）。
+2. 触控优化（hover 态改 active、禁双击缩放）；星空拖拽沿用 pointer events。
+3. 移动端音频**首次用户手势后解锁播放**。
+4. 星空/详情页（滚筒、时间线、面包屑）窄屏布局与渲染降载；图片尺寸与懒加载。
+
+### 13.4 Phase 3 — 部署改造（代码层）
+1. `MEDIA_ROOT` 环境变量：`api/media`、`api/memories` 路径可配（默认 `./media`）。
+2. 访问保护：`middleware.ts` 保护页面与 `/api`（含 `/api/media`），放行 `/login`、`/api/auth/*`、`/_next/*`、favicon；`/login` 页 + `/api/auth/login|logout`；cookie 用 `AUTH_SECRET` 签名（httpOnly/secure/sameSite）。
+3. `next.config.ts` 加 `output: "standalone"`。
+4. `/api/health` 健康检查。
+5. `Dockerfile`（多阶段、linux、编译 `better-sqlite3`）+ `docker-compose.yml`（`app` + `cloudflared` + 卷 `data`/`media` + healthcheck + `restart: unless-stopped`）。
+6. 容器内初始化入口（`db:push` + `seed`）。
+7. 备份脚本/说明；本地 `docker compose up` 先行验证。
+
+### 13.5 Phase 4 — Windows 上机 + Cloudflare 上线
+1. 目标机装 WSL2 + Docker Desktop。
+2. 代码分发：GitHub 私有仓库 → clone。
+3. 买域名 → 托管 Cloudflare → 创建 Tunnel（token 方式）。
+4. `.env.production`：`AGENT_SECRET`/`AUTH_SECRET`/`ACCESS_PASSWORD`/`DATABASE_URL=/data/app.db`/`MEDIA_ROOT=/media`。
+5. `docker compose up -d` → 初始化 DB + seed。
+6. Cloudflare：Public hostname → `http://app:3000`；SSL=Full；**关闭 Rocket Loader / Auto Minify**；验证 SSE 不被缓冲。
+7. Windows：关闭睡眠/休眠、确保 Docker 与隧道自启。
+8. 手机验收：登录 → 导航 → 看回忆 → 上传 → 对话 → 历史（4G/5G 各测）。
+
+### 13.6 Phase 5 — 维护
+- 定时备份 `data/` + `media/`（robocopy 到另一磁盘/网盘）；日志；更新流程：`git pull` → `docker compose build && up -d`。
+
+### 13.7 迁移到 Windows 开发机（已处理的迁移修复）
+- **已完成**：`data/.gitkeep` + `src/lib/db/index.ts` 目录兜底；`.gitattributes`（统一 LF、标记二进制媒体）；`.env.example`（含 `DATABASE_URL`/`AGENT_SECRET`/`MEDIA_ROOT`/`ACCESS_PASSWORD`/`AUTH_SECRET`）。
+- **步骤**：装 Git + Node 24 → clone 私有仓库 → 新建 `.env`（`DATABASE_URL="./data/app.db"`）→ `npm ci` → `npm run db:push` → `npm run seed` → `npm run dev`（**用 `localhost`，勿用 `127.0.0.1`**）→ 设置面板重填 AI API Key。
+- **注意**：`data/`（含 API Key 密文）与 `media/uploads/` 不上传；`better-sqlite3` 若报编译错误需装 VS Build Tools；保持 Node 版本一致（24）。
