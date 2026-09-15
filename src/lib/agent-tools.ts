@@ -44,6 +44,26 @@ function collectMemories(categoryId?: string): Memory[] {
   return all.filter((m) => ids.has(m.categoryId));
 }
 
+/** 构建「类别 id → 路径名（去根“地球”）」映射，供检索结果附带地点/归属信息 */
+function buildCategoryPaths(): Map<string, string> {
+  const cats = listCategories();
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const memo = new Map<string, string>();
+  const pathOf = (id: string): string => {
+    const cached = memo.get(id);
+    if (cached !== undefined) return cached;
+    const c = byId.get(id);
+    if (!c) return "";
+    const parent = c.parentId ? pathOf(c.parentId) : "";
+    const name = c.name === "地球" ? "" : c.name;
+    const full = [parent, name].filter(Boolean).join(" / ");
+    memo.set(id, full);
+    return full;
+  };
+  for (const c of cats) pathOf(c.id);
+  return memo;
+}
+
 /**
  * 创建小精灵的工具集。
  * ctx.currentCategoryId：用户当前所在类别（用于默认归属与导航上下文）。
@@ -53,13 +73,16 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
   return {
     searchMemories: tool({
       description:
-        "检索用户的回忆。可按关键词（匹配标题/描述/地点）、类别（含其子类别）、日期范围过滤。回答“我有哪些回忆”这类问题前应先调用。",
+        "检索用户的回忆。可按关键词（匹配标题/描述/地点）、类别（含其子类别）、日期范围过滤。回答“我有哪些回忆”这类问题前应先调用。返回的每条包含 id、标题、日期、location 与所属类别路径 category，便于按地点/归属做筛选。",
       inputSchema: z.object({
         query: z.string().optional().describe("关键词"),
         categoryId: z.string().optional().describe("限定类别 id（含其子类别）"),
         from: z.string().optional().describe("起始日期 YYYY-MM-DD"),
         to: z.string().optional().describe("结束日期 YYYY-MM-DD"),
-        limit: z.number().optional().describe("返回条数上限，默认 5"),
+        limit: z
+          .number()
+          .optional()
+          .describe("返回条数上限，默认 20、最大 50；需要完整候选时请调大，争取一次取全"),
       }),
       execute: ({ query, categoryId, from, to, limit }) => {
         const pool = collectMemories(categoryId);
@@ -70,11 +93,18 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
           if (!q) return true;
           return [m.title, m.description, m.location].some((v) => v?.toLowerCase().includes(q));
         });
-        const capped = filtered.slice(0, Math.min(Math.max(limit ?? 5, 1), 20));
+        const capped = filtered.slice(0, Math.min(Math.max(limit ?? 20, 1), 50));
+        const paths = buildCategoryPaths();
         return {
           total: filtered.length,
           count: capped.length,
-          items: capped.map((m) => ({ id: m.id, title: m.title, date: m.date })),
+          items: capped.map((m) => ({
+            id: m.id,
+            title: m.title,
+            date: m.date,
+            location: m.location,
+            category: paths.get(m.categoryId) ?? "",
+          })),
         };
       },
     }),

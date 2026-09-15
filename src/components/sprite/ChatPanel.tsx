@@ -58,6 +58,10 @@ export default function ChatPanel() {
   const [error, setError] = useState<string | null>(null);
   const [agentLabel, setAgentLabel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // 中止控制器：用于「停止」按钮
+  const abortRef = useRef<AbortController | null>(null);
+  // 上一次发送的文本：用于失败后「重试」
+  const lastUserRef = useRef("");
 
   // 读取当前生效的服务与模型，显示在面板顶部
   useEffect(() => {
@@ -209,21 +213,56 @@ export default function ChatPanel() {
     }
   }
 
-  /** 发送：只把会话 id 与输入交给后端，回复流式渲染 */
-  async function send() {
+  /** 发送当前输入 */
+  function send() {
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
+    void sendText(text, true);
+  }
+
+  /** 停止生成 */
+  function stop() {
+    abortRef.current?.abort();
+  }
+
+  /** 重试上一次失败/中止的输入（用户气泡已存在，故不重复追加） */
+  function retry() {
+    const text = lastUserRef.current;
+    if (!text || streaming) return;
+    setError(null);
+    setMessages((m) => {
+      const copy = [...m];
+      const last = copy[copy.length - 1];
+      if (last?.role === "assistant" && !last.content.trim() && !last.cards?.length) copy.pop();
+      return copy;
+    });
+    void sendText(text, false);
+  }
+
+  /** 发送文本并流式渲染；appendUser=false 用于重试 */
+  async function sendText(text: string, appendUser: boolean) {
+    if (streaming) return;
+    lastUserRef.current = text;
     setError(null);
     setToolStatus(null);
-    setMessages((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    setMessages((m) =>
+      appendUser
+        ? [...m, { role: "user", content: text }, { role: "assistant", content: "" }]
+        : [...m, { role: "assistant", content: "" }],
+    );
     setStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let aborted = false;
 
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, text, categoryId: currentCategoryId() }),
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const d = (await res.json().catch(() => ({}))) as { error?: string };
@@ -250,10 +289,24 @@ export default function ChatPanel() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "请求失败");
+      if (controller.signal.aborted) aborted = true;
+      else setError(err instanceof Error ? err.message : "请求失败");
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       setToolStatus(null);
+      // 空文本兜底：避免留下空气泡
+      setMessages((m) => {
+        const copy = [...m];
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant" && !last.content.trim() && !last.cards?.length) {
+          copy[copy.length - 1] = {
+            ...last,
+            content: aborted ? "（已停止）" : "（这次没组织好语言，可以再问一次）",
+          };
+        }
+        return copy;
+      });
     }
   }
 
@@ -349,7 +402,14 @@ export default function ChatPanel() {
         {toolStatus && <div className="text-left text-xs text-white/40">{toolStatus}</div>}
       </div>
 
-      {error && <p className="px-4 pb-1 text-xs text-red-400">{error}</p>}
+      {error && (
+        <div className="flex items-center gap-3 px-4 pb-1 text-xs text-red-400">
+          <span className="min-w-0 flex-1 truncate">{error}</span>
+          <button type="button" onClick={retry} className="shrink-0 underline hover:text-red-300">
+            重试
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-t border-white/10 p-3">
         <input
@@ -363,11 +423,11 @@ export default function ChatPanel() {
         />
         <button
           type="button"
-          onClick={() => void send()}
-          disabled={streaming}
+          onClick={streaming ? stop : () => void send()}
+          disabled={!streaming && !input.trim()}
           className="rounded-full bg-white/15 px-4 py-2 text-sm text-white transition-colors hover:bg-white/25 disabled:opacity-40"
         >
-          {streaming ? "…" : "发送"}
+          {streaming ? "停止" : "发送"}
         </button>
       </div>
     </div>

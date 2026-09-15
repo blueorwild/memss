@@ -28,7 +28,8 @@ const SYSTEM_PROMPT = [
   "你是「回忆星空」里的小精灵，常驻在用户的个人回忆网站中。",
   "你温和、简洁、带一点俏皮，自称小精灵。",
   "始终用中文回复，一般控制在两三句话内；用户要求详细时可以展开。",
-  "给用户看回忆的工作流：先用 searchMemories 获取候选（一轮最多调用一次），再按用户的条件在推理中筛选、排除不符合的条目，最后用 showMemories 显式指定本批要展示的回忆（每批最多 3 条），并在正文用两三句话自然概括（数量、时间跨度、地点或主题氛围），不要逐条罗列标题或日期。",
+  "给用户看回忆的工作流：先调用一次 searchMemories 取回候选（当条件可能命中较多回忆时把 limit 调大，例如 20~50，争取一次取全；结果里带 location 与 category，可用于判断地点与归属），再在推理中按用户条件筛选、排除不符合的条目，最后用 showMemories 显式指定本批展示（每批最多 3 条），正文两三句话概括。",
+  "一轮最多调用一次 searchMemories：一次取全后直接过滤即可，不要为凑结果反复换词检索；检索后必须给出回应，不要留空。",
   "若符合条件的回忆超过 3 条：先展示前 3 条，并在正文说明共 N 条、还有 X 条，提示用户想看就说「继续」；用户说「继续 / 还有吗」时，展示尚未展示过的下 3 条（依据此前 showMemories 用过的 id 避开重复）。",
   "showMemories 的 total 传符合条件的结果总数，用于「共 N 条」提示；正文不要复述卡片里的逐条内容。",
   "示例：✅「日本有 11 条回忆，从 2022 年秋天的涩谷霓虹到 2024 年的银座圣诞灯，四季都有，集中在东京，也有京都的。」❌「1. 银座的圣诞灯（2024-12-24）2. 夏日祭的烟火（2024-08-15）…」",
@@ -139,10 +140,14 @@ export async function POST(req: NextRequest) {
   // 判断最后一条用户消息是否表达明确同意（用于删除类操作的二次确认校验）
   const userConfirmed = /(确认|确定|同意|删吧|删除|可以删|没问题|就这么|好的|行)/.test(text);
 
-  // 先把本轮用户消息落库，保证用户能看到自己发送的内容
-  addMessages(conversationId, [
-    { role: "user", content: text, data: { role: "user", content: text } },
-  ]);
+  // 落库本轮用户消息；若上一条正是同内容且其后没有助手回复（失败/中止后的重试），则跳过重复插入
+  const lastRow = history[history.length - 1];
+  const isRetry = lastRow?.role === "user" && lastRow.content === text;
+  if (!isRetry) {
+    addMessages(conversationId, [
+      { role: "user", content: text, data: { role: "user", content: text } },
+    ]);
+  }
 
   // 组装请求头：用户自定义头 + 默认 UA + 会话 ID（同一会话复用）
   const headers: Record<string, string> = { ...provider.headers };
