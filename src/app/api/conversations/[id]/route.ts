@@ -10,7 +10,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!data) return Response.json({ error: "会话不存在" }, { status: 404 });
 
   const messages = data.messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
+    .filter((m) => {
+      if (m.role === "user") return true;
+      if (m.role !== "assistant") return false;
+      // 跳过只含工具调用的中间步骤（既无正文也无卡片），避免历史里出现空气泡
+      return Boolean(m.content.trim()) || Boolean(m.cards);
+    })
     .map((m) => {
       let cards: unknown = null;
       if (m.cards) {

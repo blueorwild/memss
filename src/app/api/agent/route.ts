@@ -30,6 +30,7 @@ const SYSTEM_PROMPT = [
   "始终用中文回复，一般控制在两三句话内；用户要求详细时可以展开。",
   "给用户看回忆的工作流：先调用一次 searchMemories 取回候选（当条件可能命中较多回忆时把 limit 调大，例如 20~50，争取一次取全；结果里带 location 与 category，可用于判断地点与归属），再在推理中按用户条件筛选、排除不符合的条目，最后用 showMemories 显式指定本批展示（每批最多 3 条），正文两三句话概括。",
   "一轮最多调用一次 searchMemories：一次取全后直接过滤即可，不要为凑结果反复换词检索；检索后必须给出回应，不要留空。",
+  "不要在调用工具之前输出正文：工具调用前的说明一律省略，只在最终回答里用两三句话概括一次，避免重复表述。",
   "若符合条件的回忆超过 3 条：先展示前 3 条，并在正文说明共 N 条、还有 X 条，提示用户想看就说「继续」；用户说「继续 / 还有吗」时，展示尚未展示过的下 3 条（依据此前 showMemories 用过的 id 避开重复）。",
   "showMemories 的 total 传符合条件的结果总数，用于「共 N 条」提示；正文不要复述卡片里的逐条内容。",
   "示例：✅「日本有 11 条回忆，从 2022 年秋天的涩谷霓虹到 2024 年的银座圣诞灯，四季都有，集中在东京，也有京都的。」❌「1. 银座的圣诞灯（2024-12-24）2. 夏日祭的烟火（2024-08-15）…」",
@@ -83,6 +84,11 @@ function messageText(msg: ModelMessage): string {
       .join("");
   }
   return "";
+}
+
+/** 判断一条消息是否包含工具调用（用于识别"工具前的预告文本"） */
+function hasToolCall(msg: ModelMessage): boolean {
+  return Array.isArray(msg.content) && msg.content.some((p) => p.type === "tool-call");
 }
 
 /** 把库中历史消息还原为 AI SDK 消息，并追加本轮用户输入 */
@@ -165,6 +171,9 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       // 本轮 showMemories 决定要展示的卡片（由模型显式指定，最多 3 条）
       let roundCards: { items: CardItem[]; total: number } | null = null;
+      // 步骤级文本缓冲：仅下发「不含工具调用」的步骤文本（最终回答），丢弃工具前的预告文本
+      let stepText = "";
+      let stepHasTool = false;
       try {
         send({ type: "meta", conversationId, title: conversation.title });
 
@@ -184,9 +193,18 @@ export async function POST(req: NextRequest) {
         });
 
         for await (const part of result.fullStream) {
-          if (part.type === "text-delta") {
-            send({ type: "text", delta: part.text });
+          if (part.type === "start-step") {
+            stepText = "";
+            stepHasTool = false;
+          } else if (part.type === "text-delta") {
+            stepText += part.text;
+          } else if (part.type === "finish-step") {
+            // 只把"最终步骤"（未调用工具）的文本下发，避免与工具前的预告文本重复
+            if (!stepHasTool && stepText.trim()) send({ type: "text", delta: stepText });
+            stepText = "";
+            stepHasTool = false;
           } else if (part.type === "tool-call") {
+            stepHasTool = true;
             send({ type: "tool", name: part.toolName, status: "start" });
           } else if (part.type === "tool-result") {
             send({ type: "tool", name: part.toolName, status: "done" });
@@ -217,7 +235,8 @@ export async function POST(req: NextRequest) {
         const responseMessages = await result.responseMessages;
         const stored: MessageInput[] = responseMessages.map((m) => ({
           role: m.role,
-          content: messageText(m),
+          // 含工具调用的步骤（工具前的预告文本）不保留正文，避免历史重复；data 仍保留完整结构供回灌
+          content: hasToolCall(m) ? "" : messageText(m),
           data: m,
         }));
         if (roundCards) {
