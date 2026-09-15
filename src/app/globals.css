@@ -3,6 +3,11 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* 移动端安全区（刘海/底部横条），viewport-fit=cover 后由 env() 提供 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 @theme inline {
@@ -19,10 +24,20 @@
   }
 }
 
+html {
+  height: 100%;
+  /* 移动端：禁用双击缩放（保留滚动与双指缩放），更接近原生体验 */
+  touch-action: manipulation;
+}
+
 body {
+  min-height: 100dvh;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  /* 移动端：去掉触摸高亮块、禁用下拉刷新与橡皮筋回弹 */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
 }
 
 @keyframes sceneIn {

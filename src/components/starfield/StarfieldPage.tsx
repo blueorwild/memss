@@ -118,7 +118,7 @@ export default function StarfieldPage({
   }, [zoom]);
 
   return (
-    <div className="relative h-screen overflow-hidden text-white">
+    <div className="relative h-dvh overflow-hidden text-white">
       <StarBackground />
 
       <div className="relative z-10 flex h-full flex-col motion-safe:animate-[sceneIn_0.6s_ease-out_both]">

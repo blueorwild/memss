@@ -156,7 +156,7 @@ export default function MemoryScene({
 
   return (
     <div
-      className={`relative flex min-h-screen flex-col bg-neutral-950 text-white ${
+      className={`relative flex min-h-dvh flex-col bg-neutral-950 text-white ${
         leaving
           ? "animate-[memoryOut_0.26s_ease-out_forwards]"
           : "animate-[memoryIn_0.2s_ease-out_both]"
