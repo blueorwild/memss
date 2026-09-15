@@ -188,11 +188,13 @@ export function VerticalTimelineRail({
   const span = Math.max(1, maxM - minM);
   const toT = (mi: number) => (mi - minM) / span;
 
-  // 竖直弧线：x 在 0..56（中间略外凸），t=0 在下（早）、t=1 在上（晚）
+  // 竖直弧线：x 在 0..56（中间略外凸），t=0 在上（旧）、t=1 在下（新）
   const arc = Array.from({ length: 61 }, (_, i) => {
     const t = i / 60;
-    return { x: r3(28 + 14 * Math.sin(t * Math.PI)), y: r3(1000 - t * 1000) };
+    return { x: r3(28 + 14 * Math.sin(t * Math.PI)), y: r3(t * 1000) };
   });
+  /** 弧线在某个 t 处的横向位置（百分比），供光标对齐轨道用 */
+  const arcXPercent = (t: number) => r3(((28 + 14 * Math.sin(t * Math.PI)) / 56) * 100);
 
   const years = Array.from(
     new Set(memories.map((m) => (m.date ?? "").slice(0, 4)).filter(Boolean)),
@@ -236,7 +238,7 @@ export function VerticalTimelineRail({
           className="absolute text-[12px] tracking-wide"
           style={{
             left: "50%",
-            top: `${r3((1 - t) * 100)}%`,
+            top: `${r3(t * 100)}%`,
             transform: "translate(-50%, -50%)",
             color: "rgba(255,255,255,0.85)",
             fontFamily: HAND_FONT,
@@ -250,7 +252,7 @@ export function VerticalTimelineRail({
         <motion.div
           className="absolute"
           initial={false}
-          animate={{ left: "50%", top: `${r3((1 - cursorT) * 100)}%` }}
+          animate={{ left: `${arcXPercent(cursorT)}%`, top: `${r3(cursorT * 100)}%` }}
           transition={{ type: "spring", stiffness: 110, damping: 22 }}
           style={{ x: "-50%", y: "-50%" }}
         >
@@ -265,6 +267,20 @@ export function VerticalTimelineRail({
               filter: "blur(6px)",
             }}
           />
+          {/* 竖短 */}
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 3,
+              height: 18,
+              transform: "translate(-50%, -50%)",
+              background:
+                "linear-gradient(to bottom, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+              filter: "blur(1px)",
+              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+            }}
+          />
+          {/* 横长 */}
           <div
             className="absolute left-0 top-0 rounded-full"
             style={{

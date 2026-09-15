@@ -112,6 +112,7 @@ function FlatMemories({ memories }: { memories: MemoryCard[] }) {
 
 function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
   const router = useRouter();
+  const [containerRef, size] = useElementSize<HTMLDivElement>();
   const [rotation, setRotation] = useState(0);
 
   const rotationRef = useRef(0);
@@ -119,9 +120,14 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
   const draggingRef = useRef(false);
   const lastXRef = useRef(0);
   const movedRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const radius = radiusForCount(memories.length);
+  // 矮容器（手机横屏）→ 紧凑卡片并收敛半径，避免卡片超出上下边界
+  const compact = size.h > 0 && size.h < 480;
+  const radius = useMemo(() => {
+    const base = radiusForCount(memories.length);
+    if (!compact) return base;
+    return Math.max(200, Math.round(Math.min(base, size.h * 0.95)));
+  }, [memories.length, compact, size.h]);
   const slots = useMemo(
     () =>
       memories.map((m, i) => ({
@@ -214,15 +220,18 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
       >
         {slots.map(({ m, slot }) => {
           const facing = Math.cos(((slot.angle + rotation) * Math.PI) / 180);
+          // 背面卡片不渲染（约省一半节点）；接近阈值时先淡出，避免闪现
+          if (facing < -0.5) return null;
           const intensity = (facing + 1) / 2;
           const front = facing > 0.25;
+          const fade = facing < 0 ? Math.max(0, (facing + 0.5) / 0.5) : 1;
           return (
             <div
               key={m.id}
               className="absolute left-0 top-0"
               style={{
-                transform: `translate(-50%, -50%) rotateY(${slot.angle}deg) translateZ(${slot.radius}px) translateY(${slot.y}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: r3(0.2 + 0.8 * intensity),
+                transform: `translate(-50%, -50%) rotateY(${slot.angle}deg) translateZ(${slot.radius}px) translateY(${r3(compact ? slot.y * 0.45 : slot.y)}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
+                opacity: r3((0.2 + 0.8 * intensity) * fade),
                 filter: `brightness(${r3(0.61 + 0.39 * intensity)})`,
                 pointerEvents: front ? "auto" : "none",
                 zIndex: Math.round(intensity * 1000),
@@ -233,8 +242,12 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
                 onClick={() => openMemory(m.id)}
                 className="block cursor-pointer outline-none"
               >
-                <MemoryCardFace memory={m} />
-                <p className="mt-2 w-[200px] truncate text-center text-xs text-white/70">
+                <MemoryCardFace memory={m} compact={compact} />
+                <p
+                  className={`mt-2 truncate text-center text-xs text-white/70 ${
+                    compact ? "w-[150px]" : "w-[200px]"
+                  }`}
+                >
                   {m.title}
                 </p>
               </button>
@@ -262,6 +275,8 @@ function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
   const draggingRef = useRef(false);
   const lastYRef = useRef(0);
   const movedRef = useRef(false);
+  // 自动旋转的帧计数（每 2 帧推进一次 ≈ 1.5°/秒）
+  const frameRef = useRef(0);
 
   // 半径同时受「卡片数」与「容器高度」约束：卡片多要更大，但不能超出屏幕
   const radius = useMemo(() => {
@@ -294,7 +309,7 @@ function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
     return best;
   }, [slots, rotation]);
 
-  // 惯性滑行：静止时不 setState，避免无意义的重渲染
+  // 惯性滑行 + 静止后自动缓缓上滚（每 2 帧推进一次，约 1.5°/秒）
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -305,6 +320,12 @@ function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
           setRotation(rotationRef.current);
         } else {
           velocityRef.current = 0;
+          frameRef.current += 1;
+          if (frameRef.current % 2 === 0) {
+            // rotation 增大 => 卡片向上移动 => 更新的内容从下方进入
+            rotationRef.current += 0.05;
+            setRotation(rotationRef.current);
+          }
         }
       }
       raf = requestAnimationFrame(tick);
@@ -369,13 +390,15 @@ function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
           if (facing < -0.5) return null;
           const intensity = (facing + 1) / 2;
           const front = facing > 0.25;
+          // 接近剔除阈值时先淡出，避免卡片「闪现」
+          const fade = facing < 0 ? Math.max(0, (facing + 0.5) / 0.5) : 1;
           return (
             <div
               key={m.id}
               className="absolute left-0 top-0"
               style={{
                 transform: `translate(-50%, -50%) rotateX(${slot.angle}deg) translateZ(${slot.radius}px) translateX(${slot.x}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: r3(0.2 + 0.8 * intensity),
+                opacity: r3((0.2 + 0.8 * intensity) * fade),
                 filter: `brightness(${r3(0.61 + 0.39 * intensity)})`,
                 pointerEvents: front ? "auto" : "none",
                 zIndex: Math.round(intensity * 1000),
