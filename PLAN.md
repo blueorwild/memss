@@ -58,6 +58,8 @@ Memory {
   description?// 可选文字
   location    // 地点文本（冗余，便于展示与检索）
   seed        // 确定性散落布局的随机种子
+  createdAt   // 上传时间（毫秒）；无 date 时作为排序依据
+  coverMediaId? // 设为缩略图的图片 media.id；为空/失效时回退到第一张图片
 }
 
 Media {
@@ -67,6 +69,9 @@ Media {
   path        // media/ 下的相对路径
   order       // 图片顺序
   caption?
+  focalX      // 裁剪焦点 X 百分比（默认 50）
+  focalY      // 裁剪焦点 Y 百分比（默认 50）
+  cropScale   // 裁剪缩放百分比（100-600，默认 100）
 }
 ```
 
@@ -220,7 +225,7 @@ ai_try/
   3. 新增 `showMemories` 工具：模型检索、过滤后**显式指定**展示条目（每批 ≤3，服务端兜底），卡片由此下发；`searchMemories` 降为数据源。正文要求 2–3 句概括 + 分批提示。
   4. `conversations` API（列表 / 详情 / 多选删除 / 一键清空）与 `HistoryPanel`（列表、切换、多选删除、清空、新对话）。
   5. 前端 `ChatPanel` 只渲染后端内容：仅发 `conversationId + text`，`localStorage` 记住当前会话，刷新自动恢复。
-- **Step 7 收尾**：部分完成（`.env.example`、`.gitattributes`、迁移路径修复见 §13）；部署与访问保护纳入 1.0 上线路线图。
+- **Step 7 收尾**：完成。`.env.example`、`.gitattributes`、迁移路径修复见 §13.7；部署与访问保护纳入 1.0 上线路线图。后续 Phase 1 的准确性与体验优化见 §13.2（已完成）。
 
 ## 13. 1.0 上线路线图（部署公网 + 手机访问）
 
@@ -231,19 +236,33 @@ ai_try/
 - **数据**：部署机与开发机均重新 seed，不迁移 `data/`。
 - **手机端 1.0 范围**：导航 / 看回忆 / 上传 / 对话 / 历史。
 
-### 13.2 Phase 1 — Agent 准确性与体验优化（在新 Windows 开发机进行）
-1. `searchMemories` 结果增加 `location`（+类别名），让模型能直接判断"是否在某地"，减少多轮检索（现状同类问题约 40s+）。
-2. prompt 收紧检索策略（先一次尽量查全，再过滤），避免逼近 `stopWhen(8)`。
-3. 助手空文本兜底：仅调工具未输出时给一句提示。
-4. 流式期间「停止」按钮（`AbortController`）；发送中锁定历史切换。
-5. SSE 断开/超时的错误提示与重试。
-6. 媒体缩略图与懒加载（部分性能）。
+### 13.2 Phase 1 — Agent 准确性与体验优化 ✅ 已完成
+1. ✅ `searchMemories` 结果补 `location`（+ 类别名），模型可直接判断"是否在某地"，减少多轮检索。
+2. ✅ prompt 收紧检索策略（先一次尽量查全再过滤）；`searchMemories` 的 `limit` 默认 20、上限 50。
+3. ✅ 助手空文本兜底：仅调工具未输出时给一句提示。
+4. ✅ 流式期间「停止」按钮（`AbortController`）；发送中锁定历史切换。
+5. ✅ SSE 断开/超时的错误提示与重试。
+6. ✅ 图片懒加载 + 异步解码（`loading="lazy"` / `decoding="async"`）。
+7. ✅ **回复重复修复**（`3f8361e`）：按 `start-step`/`finish-step` 做步骤级文本缓冲，**仅下发未调用工具的最终步骤文本**；落库 `content` 对含工具调用的消息置空；`/api/conversations/[id]` 过滤「无 content 也无 cards」的 assistant。实测回复不再重复。
+8. ✅ **「这里/这片星空」绑定当前类别**（`3ae0bd5`）：把当前 `categoryId` 注入 prompt，模型据此检索当前子树。实测「中国」页 5 条、7.5s。
+9. ✅ **dev server 绑定 `127.0.0.1`**（`fdba254`）：`dev` 脚本改 `next dev -H 127.0.0.1`，消除同网段内网暴露（原监听 `*:3000` 且 macOS 防火墙关闭 → 可读数据/白嫖 AI 额度/删数据）。
 
-### 13.3 Phase 2 — 移动端适配
-1. 小精灵面板窄屏改**底部抽屉/全宽**（`100dvh` + `safe-area-inset`）。
-2. 触控优化（hover 态改 active、禁双击缩放）；星空拖拽沿用 pointer events。
-3. 移动端音频**首次用户手势后解锁播放**。
-4. 星空/详情页（滚筒、时间线、面包屑）窄屏布局与渲染降载；图片尺寸与懒加载。
+> 效果对比：同类多步检索任务由约 42s 降至约 13.5s。
+
+### 13.3 Phase 2 — 移动端适配（Step 1–5 ✅，Step 6 待做）
+**统一「双轨」布局（用户确认）**：宽屏（≥640px）= 上下两行横向轨道；窄屏 = 左右两列纵向轨道；手机横屏（矮容器）自动横向 + 紧凑/迷你卡片。
+- 模式判定：每轨容量 `min(几何容量, PER_TRACK_MAX=3)` → 阈值 `2×3=6`；`n ≤ 6` **平铺**（格内随机偏移 + 轻微旋转 + 缓缓浮动 + 第 2 轨错开半卡），`n > 6` **流动**（大半径滚筒 `R=max(长边×2.5,1200)`、仅渲染可见+屏外缓冲、两端 CSS mask 渐隐、随机起点、由旧至新、拖拽+惯性）。
+- 同屏完整缩略图 ≤ 6；1 段居中、2 段间距 `1.5×卡宽`（受可用区约束）。
+- 星轨：横向在底部（常规 140px / 矮容器 64px），纵向在**左侧**（56px），**上旧下新**；光标跟随弧线 x，十字星芒「竖短 3×18 + 横长 26×3」；交叉方向必须避让星轨占位。
+- 图片预热：裁剪缓冲 `max(step, 屏长×0.25)` + `loading="eager"` + 加载完成 300ms 淡入（含 `img.complete` 缓存命中处理）。
+
+**Step 1 ✅ 地基**（`898bca4`）：`layout.tsx` 导出 `viewport`（`viewport-fit: cover`、`themeColor #05060a`、`interactiveWidget: "resizes-content"`）；`globals.css` 加 `--safe-*` 变量、`touch-action: manipulation`（禁双击缩放）、`overscroll-behavior-y: none`、`-webkit-tap-highlight-color: transparent`、`body min-height: 100dvh`；全站 `h-screen`/`min-h-screen` → `h-dvh`/`min-h-dvh`。实测 375/390/360 无横向溢出。
+**Step 2 ✅ 小精灵底部抽屉**（`fc3d586`）：新增 `useMediaQuery`/`useIsMobile`（`useSyncExternalStore`，断点 `(max-width: 639px)`）；窄屏面板改底部抽屉（`h-[min(78dvh,560px)] w-full rounded-t-2xl pb-[var(--safe-bottom)]`、遮罩 z-[65] 点击关闭、面板 z-[70]），锁 body 滚动、悬浮球避让安全区。桌面 360×460 面板无回归。
+**Step 3 ✅ 面板内部窄屏化**（`36e7aba`）：输入框 `text-base sm:text-sm`（防 iOS 聚焦放大）、主按钮 ≥44px、次要控件 ≥36px、`enterKeyHint="send"`、`DialogContent` 加 `max-h-[85dvh] overflow-y-auto`、`ActionBar` 窄屏三等分。
+**Step 4 ✅ 星空页**（`9e20e17` + `d72d583`）：`useElementSize` 让星距随容器收敛；窄屏纵向滚筒（`rotateX`、上下拖拽、背面剔除）；`VerticalTimelineRail`（左侧、上旧下新、光标对齐弧线、竖短横长星芒）；纵向滚筒自动上滚 1.5°/s；横竖滚筒均剔除背面卡片（带淡出）；手机横屏紧凑布局；header 安全区。
+**双轨统一重塑 ✅**（`67c9ffb` + `40fbedf` + `d031bb2`）：`MemoryCylinder.tsx` 重写为「双轨统一」（`MemoryCylinder` 判定 + `TileBoard` + `FlowTracks`）；`layout-seed.ts` 删除 `gridScatter`/`timelineScatter`，新增 `TRACK_GAP=24`/`trackCapacity`/`trackCrossPositions`/`tileJitter`/`flowTilt`；星轨占位避让、每轨 ≤3 张稀疏化、平铺偏移限制在格内并双轨交错、横屏迷你卡片 + 星轨压缩；`memories.created_at` 加列（无日期排序用）；图片预热 / 1~2 段居中 / `seed:demo` 测试数据脚本。
+**Step 5 ✅ 详情页**（`76ba34a`）：`PlayButton`（▶/❚❚ + 呼吸光晕，`failed` 红框提示）、**移除自动播放**；左右滑动切图（`|dx|>40 且 |dx|>|dy|×1.5`）；header/main 窄屏 padding + 安全区；标题响应式；背景图 `blur-sm → blur-xs` + `draggable={false}`；**窄屏 fixed 底栏 `grid grid-cols-3`**（‹ / ▶ / › 同水平线）；`Sprite` 窄屏默认球位置上移 64px 避开底栏。实测窄屏图片宽 341（91% 视口）、底栏三按钮 48px 同高、无横向溢出。
+**Step 6 ⏳ 待做**：移动端降载（`StarBackground` dpr ≤ 1.5、星数/粒子/星尘上限下调、尊重 `prefers-reduced-motion`）+ 桌面 1440×900 回归 + 375px 全流程验证（导航→详情→对话→上传→历史）。
 
 ### 13.4 Phase 3 — 部署改造（代码层）
 1. `MEDIA_ROOT` 环境变量：`api/media`、`api/memories` 路径可配（默认 `./media`）。
@@ -269,5 +288,28 @@ ai_try/
 
 ### 13.7 迁移到 Windows 开发机（已处理的迁移修复）
 - **已完成**：`data/.gitkeep` + `src/lib/db/index.ts` 目录兜底；`.gitattributes`（统一 LF、标记二进制媒体）；`.env.example`（含 `DATABASE_URL`/`AGENT_SECRET`/`MEDIA_ROOT`/`ACCESS_PASSWORD`/`AUTH_SECRET`）。
-- **步骤**：装 Git + Node 24 → clone 私有仓库 → 新建 `.env`（`DATABASE_URL="./data/app.db"`）→ `npm ci` → `npm run db:push` → `npm run seed` → `npm run dev`（**用 `localhost`，勿用 `127.0.0.1`**）→ 设置面板重填 AI API Key。
-- **注意**：`data/`（含 API Key 密文）与 `media/uploads/` 不上传；`better-sqlite3` 若报编译错误需装 VS Build Tools；保持 Node 版本一致（24）。
+- **步骤**：装 Git + Node 24 → clone 私有仓库 → 新建 `.env`（`DATABASE_URL="./data/app.db"`）→ `npm ci` → `npm run db:push` → `npm run seed` → `npm run dev`（**浏览器一律用 `http://localhost:3000`**）→ 设置面板重填 AI API Key。
+- **注意**：`dev` 脚本已固定 `next dev -H 127.0.0.1`（仅回环监听、不暴露内网）；Next 16 dev 若用 `127.0.0.1` 作为浏览器地址会拦开发资源导致 React 不 hydrate，故浏览器用 `localhost`。`data/`（含 API Key 密文）与 `media/uploads/` 不上传；`better-sqlite3` 若报编译错误需装 VS Build Tools；保持 Node 版本一致（24）。
+
+## 14. 细节打磨（回忆编辑等，已完成）
+
+### 14.1 回忆编辑
+- **入口只走小精灵面板**（符合「操作统一走小精灵」约定）：详情页 header 的「编辑」按钮与 Agent 工具 `openEditMemory` 都只是切到面板的编辑视图（`store.view = "edit"` + `editMemoryId`）。
+- **共享表单** `MemoryForm`（`mode: "create" | "edit"`）取代原 `UploadMemoryForm`：编辑态先 `GET /api/memories/[id]` 回填；可改标题/描述/类别/日期，增删图片、设封面、替换或删除音乐。
+- **API**：`GET /api/memories/[id]`；`PATCH /api/memories/[id]`（multipart）字段 `title/categoryId/date/description/location`、`keepImageIds`（有序 JSON）、`coverRef`（现有 mediaId 或 `new:<index>`）、`removeAudio`、`images[]`、`audio`。图片顺序 = 保留的旧图（按 `keepImageIds`）在前、新增图在后；`PATCH` 只接受确实属于该回忆的图片 id（防越权）。
+- **迁移类别**：编辑表单里改类别即可；小精灵侧新增 `moveMemory` 工具（**双保险二次确认**：工具 `confirm` + 服务端校验最后一条用户消息含确认词），迁移后重算 `location` 并下发 `moved` 动作触发刷新。
+
+### 14.2 缩略图（封面）
+- 新增 `memories.coverMediaId`（可空）。`listMemoryCards` 封面 = 显式封面（若仍存在）否则**第一张图片**；**删除当前封面 → 自动退回首张**；一张不剩则 `null`。
+
+### 14.3 标题长度
+- 规则：**按显示宽度**，汉字/全角/emoji = 2 半角单位，英数/半角符号 = 1，上限 **40 半角（= 20 汉字 / 40 英文字母）**。`src/lib/title-limit.ts` 前后端共用；表单实时计数（`n/20 字`）并禁用超限提交，POST/PATCH 服务端再次校验。历史超限数据不迁移，卡片仍靠 CSS 截断。
+
+### 14.4 其他
+- **历史对话多选删除**也加二次确认弹层（原本只有「清空全部」有）。
+- **宽屏小精灵面板可拖动**（标题栏，`cursor-grab`），手动拖过后与悬浮球解耦；**位置不持久化**，刷新回默认。窄屏抽屉不变。
+- **回忆描述保留换行**：详情页描述用 `whitespace-pre-wrap break-words`（`pre-line` 会折叠前导空格，ASCII 画会坏）。
+- **标题/描述不做 trim**：POST/PATCH 原样保存（保留首尾空白与换行），仅必填校验时用 `trim()` 判断纯空白。曾因整串 `.trim()` 导致描述开头的缩进被吃掉。
+- **图片裁剪（焦点 + 缩放）**：`media` 加 `focalX`/`focalY`（百分比，默认 50）+ `cropScale`（百分比 100–600，默认 100）。三者用同一套 CSS（`object-position` + `transform: scale` + `transform-origin`，见 `src/lib/crop.ts` 的 `coverStyle`）在**瓷砖 / 卡片 / 详情主图 / 详情背景 / 裁剪弹窗**里完全一致（背景额外叠 1.05 基础缩放）。表单瓷砖：**单击 = 设封面**、**双击 = 打开裁剪弹窗**（单击动作延迟 230ms，双击时取消，避免误设封面）。弹窗内固定 3:2 框，图片可拖动平移（按溢出比 1:1 跟手）、滚轮 / 双指捏合 / 滑杆缩放（100–600），可重置。提交 `newFocal`（与 `images[]` 同序的 `[{x,y,scale}]`）与 `imageMeta`（有序 `[{id,x,y,scale}]`），服务端 clamp。不生成新图片文件。
+- **卡片比例统一为 3:2**：`CARD_NORMAL {200,133}`、`COMPACT {150,100}`、`TINY {120,80}`，与详情页一致，预览所见即所得。
+- **页面快捷键守卫**（`src/lib/dom.ts` 的 `shouldIgnorePageShortcut`）：焦点在输入控件内 / 有 `[role="dialog"]` / 小精灵面板打开时，`MemoryScene`（←/→ 切图、空格播放、Esc 返回）与 `StarfieldPage`（Esc 上级）不再抢占按键——否则在小精灵面板里输入时 ←/→ 无法移动光标、空格打不出、Esc 误返回。

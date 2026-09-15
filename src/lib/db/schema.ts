@@ -18,6 +18,8 @@ export const memories = sqliteTable("memories", {
   seed: integer("seed").notNull().default(0),
   /** 上传时间（毫秒）：没有 date 时作为排序依据 */
   createdAt: integer("created_at").notNull().default(0),
+  /** 设为缩略图的图片 media.id；为空或失效时回退到第一张图片 */
+  coverMediaId: text("cover_media_id"),
 });
 
 export const media = sqliteTable("media", {
@@ -27,6 +29,11 @@ export const media = sqliteTable("media", {
   path: text("path").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   caption: text("caption"),
+  /** 裁剪焦点（百分比 0-100）：object-cover 时决定展示构图，默认居中 */
+  focalX: integer("focal_x").notNull().default(50),
+  focalY: integer("focal_y").notNull().default(50),
+  /** 裁剪缩放（百分比 100-600）：以焦点为中心放大，默认 100（不放大） */
+  cropScale: integer("crop_scale").notNull().default(100),
 });
 
 // 对话会话

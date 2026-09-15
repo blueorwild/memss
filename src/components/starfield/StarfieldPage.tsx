@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
+import { shouldIgnorePageShortcut } from "@/lib/dom";
 import { useSpriteStore } from "@/store/sprite";
 import StarBackground from "./StarBackground";
 import Breadcrumb from "./Breadcrumb";
@@ -70,6 +71,8 @@ export default function StarfieldPage({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 输入中 / 有弹层 / 小精灵面板打开时不抢按键（避免 Esc 在编辑面板里误返回）
+      if (shouldIgnorePageShortcut(e)) return;
       if (e.key === "Escape" && path.length > 1) {
         router.push(`/star/${path.slice(0, -1).join("/")}`);
       }

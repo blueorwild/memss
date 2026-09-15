@@ -7,8 +7,8 @@ import {
   listCategories,
   listMemories,
 } from "./db/queries";
-import { deleteCategoryById, deleteMemoryById } from "./db/mutations";
-import type { Memory } from "./db/schema";
+import { deleteCategoryById, deleteMemoryById, updateMemory } from "./db/mutations";
+import type { Category, Memory } from "./db/schema";
 
 /** 需要前端执行的动作 */
 export type ClientAction =
@@ -17,6 +17,8 @@ export type ClientAction =
       type: "openUpload";
       draft: { categoryId?: string; title?: string; description?: string; date?: string };
     }
+  | { type: "openEdit"; memoryId: string }
+  | { type: "moved"; memoryId: string; path: string }
   | { type: "forgotten"; kind: "memory" | "category"; targetId: string; fallbackPath: string };
 
 /** 收集某类别子树内的全部回忆；不传类别则返回全部 */
@@ -62,6 +64,61 @@ function buildCategoryPaths(): Map<string, string> {
   };
   for (const c of cats) pathOf(c.id);
   return memo;
+}
+
+/** 类别路径名（去根「地球」），用于生成记忆的 location 文本 */
+function locationOfCategory(categoryId: string): string {
+  return getCategoryPath(categoryId)
+    .map((c) => c.name)
+    .filter((n) => n !== "地球")
+    .join(" / ");
+}
+
+/** 按名称解析类别：精确优先，否则取第一个包含匹配，并给出多匹配提示 */
+function findCategoryByName(name: string): { cat: Category; note?: string } | null {
+  const q = name.trim().toLowerCase();
+  if (!q) return null;
+  const cats = listCategories();
+  const exact = cats.find((c) => c.name.toLowerCase() === q);
+  if (exact) return { cat: exact };
+  const partial = cats.filter((c) => c.name.toLowerCase().includes(q));
+  if (partial.length === 0) return null;
+  const note =
+    partial.length > 1
+      ? `存在多个匹配：${partial
+          .slice(0, 5)
+          .map((c) => c.name)
+          .join("、")}，已选择「${partial[0].name}」。`
+      : undefined;
+  return { cat: partial[0], note };
+}
+
+/** 按 id（优先）或标题解析一条回忆 */
+function resolveMemory(
+  all: Memory[],
+  memoryId?: string,
+  title?: string,
+): { ok: true; mem: Memory; note?: string } | { ok: false; message: string } {
+  let targetId = memoryId?.trim() || undefined;
+  let note: string | undefined;
+  if (!targetId) {
+    const q = title?.trim().toLowerCase();
+    if (!q) return { ok: false, message: "请提供回忆标题或 id。" };
+    const exact = all.find((m) => m.title.toLowerCase() === q);
+    const partial = all.filter((m) => m.title.toLowerCase().includes(q));
+    const chosen = exact ?? partial[0];
+    if (!chosen) return { ok: false, message: `没有找到标题含「${title}」的回忆。` };
+    if (!exact && partial.length > 1) {
+      note = `存在多条匹配：${partial
+        .slice(0, 5)
+        .map((m) => m.title)
+        .join("、")}，已选择「${chosen.title}」。`;
+    }
+    targetId = chosen.id;
+  }
+  const mem = all.find((m) => m.id === targetId);
+  if (!mem) return { ok: false, message: "该回忆不存在。" };
+  return { ok: true, mem, note };
 }
 
 /**
@@ -206,6 +263,81 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
         const path = `/memory/${mem.id}`;
         const clientAction: ClientAction = { type: "navigate", path };
         return { ok: true, title: mem.title, path, note, clientAction };
+      },
+    }),
+
+    openEditMemory: tool({
+      description:
+        "打开某条回忆的编辑面板（可改标题、描述、类别、日期、图片与音乐）。用户表示想修改/编辑某条回忆时调用，可按标题或 id。",
+      inputSchema: z.object({
+        memoryId: z.string().optional().describe("回忆 id（已知时优先）"),
+        title: z.string().optional().describe("回忆标题"),
+      }),
+      execute: ({ memoryId, title }) => {
+        const resolved = resolveMemory(listMemories(), memoryId, title);
+        if (!resolved.ok) return { ok: false, message: resolved.message };
+        const clientAction: ClientAction = { type: "openEdit", memoryId: resolved.mem.id };
+        return { ok: true, title: resolved.mem.title, note: resolved.note, clientAction };
+      },
+    }),
+
+    moveMemory: tool({
+      description:
+        "把一条回忆迁移到另一个类别（即改归属地点）。可逆操作，但会改变归属：需先向用户复述「哪条回忆 → 迁到哪个类别」并取得明确同意；未获同意时只返回待确认信息，得到同意后再以 confirm=true 调用。",
+      inputSchema: z.object({
+        memoryId: z.string().optional().describe("回忆 id（已知时优先）"),
+        title: z.string().optional().describe("回忆标题"),
+        categoryId: z.string().optional().describe("目标类别 id（已知时优先）"),
+        categoryName: z.string().optional().describe("目标类别名称，如「东京」「云南」"),
+        confirm: z.boolean().optional().describe("是否已获得用户明确同意"),
+      }),
+      execute: async ({ memoryId, title, categoryId, categoryName, confirm }) => {
+        const resolved = resolveMemory(listMemories(), memoryId, title);
+        if (!resolved.ok) return { ok: false, message: resolved.message };
+
+        // 解析目标类别：优先 id，否则按名称
+        let targetId = categoryId?.trim() || undefined;
+        let note = resolved.note;
+        if (targetId && !getCategory(targetId)) {
+          return { ok: false, message: "目标类别不存在。" };
+        }
+        if (!targetId) {
+          if (!categoryName?.trim()) {
+            return { ok: false, message: "请提供要迁移到的类别名称或 id。" };
+          }
+          const found = findCategoryByName(categoryName);
+          if (!found) return { ok: false, message: `没有找到名为「${categoryName}」的类别。` };
+          targetId = found.cat.id;
+          note = [note, found.note].filter(Boolean).join(" ") || undefined;
+        }
+        const cat = getCategory(targetId!);
+        if (!cat) return { ok: false, message: "目标类别不存在。" };
+        if (cat.id === resolved.mem.categoryId) {
+          return { ok: false, message: `《${resolved.mem.title}》已经归属「${cat.name}」了。` };
+        }
+
+        // 未获得用户明确同意时，只返回待确认信息
+        if (!confirm || !ctx.userConfirmed) {
+          return {
+            needConfirm: true,
+            memory: {
+              id: resolved.mem.id,
+              title: resolved.mem.title,
+              location: resolved.mem.location,
+            },
+            target: { id: cat.id, name: cat.name },
+            note,
+            message: `将把《${resolved.mem.title}》从「${resolved.mem.location || "未设置"}」迁移到「${cat.name}」。请先向用户确认，得到同意后再以 confirm=true 调用。`,
+          };
+        }
+
+        updateMemory(resolved.mem.id, {
+          categoryId: cat.id,
+          location: locationOfCategory(cat.id),
+        });
+        const path = `/memory/${resolved.mem.id}`;
+        const clientAction: ClientAction = { type: "moved", memoryId: resolved.mem.id, path };
+        return { ok: true, title: resolved.mem.title, category: cat.name, note, clientAction };
       },
     }),
 

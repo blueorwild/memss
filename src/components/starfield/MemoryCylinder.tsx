@@ -16,14 +16,15 @@ import {
   trackCrossPositions,
 } from "@/lib/layout-seed";
 import { useElementSize } from "@/lib/use-element-size";
+import { coverStyle } from "@/lib/crop";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import type { MemoryCard } from "@/lib/db/queries";
 import TimelineRail, { VerticalTimelineRail } from "./TimelineRail";
 
-/** 卡片尺寸三档：宽屏 / 窄屏 / 手机横屏（空间极紧张） */
-const CARD_NORMAL = { w: 200, h: 140 };
-const CARD_COMPACT = { w: 150, h: 105 };
-const CARD_TINY = { w: 120, h: 84 };
+/** 卡片尺寸三档：宽屏 / 窄屏 / 手机横屏（空间极紧张）；统一 3:2 与详情页一致 */
+const CARD_NORMAL = { w: 200, h: 133 };
+const CARD_COMPACT = { w: 150, h: 100 };
+const CARD_TINY = { w: 120, h: 80 };
 /** 自动流动速度（px/s） */
 const FLOW_SPEED = 12;
 /** 卡片标题占用的纵向长度（含间距，px）：算轨道步长用 */
@@ -36,9 +37,9 @@ type CardSize = { w: number; h: number };
 type Size = { w: number; h: number };
 
 const FACE_CLS: Record<CardTier, string> = {
-  normal: "h-[140px] w-[200px]",
-  compact: "h-[105px] w-[150px]",
-  tiny: "h-[84px] w-[120px]",
+  normal: "h-[133px] w-[200px]",
+  compact: "h-[100px] w-[150px]",
+  tiny: "h-[80px] w-[120px]",
 };
 const CAPTION_CLS: Record<CardTier, string> = {
   normal: "w-[200px]",
@@ -61,12 +62,17 @@ function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }
       {memory.cover ? (
         <img
           ref={onImgRef}
-          src={`/api/media/${memory.cover}`}
+          src={`/api/media/${memory.cover.path}`}
           alt={memory.title}
           draggable={false}
           loading="eager"
           decoding="async"
           onLoad={() => setLoaded(true)}
+          style={coverStyle({
+            x: memory.cover.focalX,
+            y: memory.cover.focalY,
+            scale: memory.cover.cropScale,
+          })}
           className={`h-full w-full object-cover transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}

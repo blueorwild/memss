@@ -3,6 +3,7 @@ import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "./index";
 import { categories, media, memories } from "./schema";
+import type { Memory } from "./schema";
 import { getCategory } from "./queries";
 
 /** 媒体文件根目录（与 /api/media 路由一致） */
@@ -49,6 +50,34 @@ export async function deleteMemoryById(id: string): Promise<boolean> {
   db.delete(media).where(eq(media.memoryId, id)).run();
   db.delete(memories).where(eq(memories.id, id)).run();
   return true;
+}
+
+/** 更新回忆的标量字段（不含媒体增删，媒体由 PATCH 路由单独处理） */
+export function updateMemory(
+  id: string,
+  patch: Partial<
+    Pick<Memory, "title" | "categoryId" | "date" | "description" | "location" | "coverMediaId">
+  >,
+): void {
+  db.update(memories).set(patch).where(eq(memories.id, id)).run();
+}
+
+/** 删除若干媒体记录及其物理文件（文件缺失不影响） */
+export async function deleteMediaByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = db.select().from(media).where(inArray(media.id, ids)).all();
+  for (const a of rows) {
+    const abs = resolveMediaPath(a.path);
+    if (abs) await fs.rm(abs, { force: true }).catch(() => {});
+  }
+  db.delete(media).where(inArray(media.id, ids)).run();
+}
+
+/** 按给定顺序重排媒体（数组下标即 sortOrder），用于图片顺序与封面归一化 */
+export function setMediaOrder(ids: string[]): void {
+  for (let i = 0; i < ids.length; i++) {
+    db.update(media).set({ sortOrder: i }).where(eq(media.id, ids[i])).run();
+  }
 }
 
 export type CategoryDeleteResult =

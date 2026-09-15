@@ -35,6 +35,8 @@ const TOOL_LABEL: Record<string, string> = {
   showMemories: "正在整理回忆…",
   navigateToCategory: "正在前往…",
   uploadMemory: "正在打开上传面板…",
+  openEditMemory: "正在打开编辑面板…",
+  moveMemory: "正在迁移…",
   forgetMemory: "正在遗忘…",
   forgetCategory: "正在遗忘…",
   openMemory: "正在打开…",
@@ -174,6 +176,11 @@ export default function ChatPanel() {
       }
     } else if (action.type === "openUpload") {
       useSpriteStore.getState().openUpload(action.draft);
+    } else if (action.type === "openEdit") {
+      useSpriteStore.getState().openEdit(action.memoryId);
+    } else if (action.type === "moved") {
+      // 归属变更：刷新当前页（详情页的面包屑与地点随之更新）
+      router.refresh();
     } else if (action.type === "forgotten") {
       if (action.kind === "memory") {
         if (pathname === `/memory/${action.targetId}`) {

@@ -7,7 +7,9 @@ export type { Category, Media, Memory };
 
 export type MemoryWithMedia = Memory & { media: Media[] };
 export type CategoryWithCount = Category & { memoryCount: number };
-export type MemoryCard = Memory & { cover: string | null };
+/** 卡片封面：图片路径 + 裁剪（焦点百分比 + 缩放百分比） */
+export type MemoryCover = { path: string; focalX: number; focalY: number; cropScale: number };
+export type MemoryCard = Memory & { cover: MemoryCover | null };
 
 export function getMemoryWithMedia(id: string): MemoryWithMedia | null {
   const memory = db.select().from(memories).where(eq(memories.id, id)).get();
@@ -75,11 +77,29 @@ export function listMemoryCards(categoryId: string): MemoryCard[] {
     .where(inArray(media.memoryId, sorted.map((m) => m.id)))
     .orderBy(asc(media.sortOrder))
     .all();
-  const coverMap = new Map<string, string>();
+  // 图片：mediaId → 媒体行（用于解析显式封面），以及 memoryId → 首张图片（回退用）
+  const imageById = new Map<string, Media>();
+  const firstImage = new Map<string, Media>();
   for (const a of assets) {
-    if (a.type === "image" && !coverMap.has(a.memoryId)) coverMap.set(a.memoryId, a.path);
+    if (a.type !== "image") continue;
+    imageById.set(a.id, a);
+    if (!firstImage.has(a.memoryId)) firstImage.set(a.memoryId, a);
   }
-  return sorted.map((m) => ({ ...m, cover: coverMap.get(m.id) ?? null }));
+  // 封面优先取显式设置的 coverMediaId，失效则回退首张；带上其裁剪焦点
+  return sorted.map((m) => {
+    const chosen = (m.coverMediaId ? imageById.get(m.coverMediaId) : undefined) ?? firstImage.get(m.id);
+    return {
+      ...m,
+      cover: chosen
+        ? {
+            path: chosen.path,
+            focalX: chosen.focalX,
+            focalY: chosen.focalY,
+            cropScale: chosen.cropScale,
+          }
+        : null,
+    };
+  });
 }
 
 export function getSubtreeMemoryCounts(): Map<string, number> {

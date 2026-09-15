@@ -14,6 +14,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Category, MemoryWithMedia } from "@/lib/db/queries";
+import { coverStyle } from "@/lib/crop";
+import { shouldIgnorePageShortcut } from "@/lib/dom";
+import { useSpriteStore } from "@/store/sprite";
 
 /** 播放/暂停背景音乐按钮：带呼吸光晕（未播放时更明显，提示可点） */
 function PlayButton({
@@ -191,6 +194,8 @@ export default function MemoryScene({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // 输入中 / 有弹层 / 小精灵面板打开时不抢按键
+      if (shouldIgnorePageShortcut(e)) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         changeImage(-1);
@@ -242,7 +247,11 @@ export default function MemoryScene({
             alt=""
             draggable={false}
             decoding="async"
-            className="h-full w-full scale-105 object-cover opacity-40 blur-xs"
+            style={coverStyle(
+              { x: current.focalX, y: current.focalY, scale: current.cropScale },
+              1.05,
+            )}
+            className="h-full w-full object-cover opacity-40 blur-xs"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
         </div>
@@ -261,40 +270,49 @@ export default function MemoryScene({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span className="text-sm text-white/50">{memory.date}</span>
-          <Dialog>
-            <DialogTrigger asChild>
-              <button
-                type="button"
-                className="-my-1 px-1 py-1.5 text-sm text-red-300/80 transition-colors hover:text-red-300"
-              >
-                遗忘
-              </button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogTitle>遗忘这条回忆？</DialogTitle>
-              <DialogDescription>
-                「{memory.title}」及其图片、音乐将被永久遗忘，无法找回。
-              </DialogDescription>
-              <div className="mt-5 flex justify-end gap-2">
-                <DialogClose asChild>
-                  <button
-                    type="button"
-                    className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
-                  >
-                    取消
-                  </button>
-                </DialogClose>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => useSpriteStore.getState().openEdit(memory.id)}
+              className="-my-1 px-1 py-1.5 text-sm text-white/70 transition-colors hover:text-white"
+            >
+              编辑
+            </button>
+            <Dialog>
+              <DialogTrigger asChild>
                 <button
                   type="button"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+                  className="-my-1 px-1 py-1.5 text-sm text-red-300/80 transition-colors hover:text-red-300"
                 >
-                  {deleting ? "遗忘中…" : "确认遗忘"}
+                  遗忘
                 </button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogTitle>遗忘这条回忆？</DialogTitle>
+                <DialogDescription>
+                  「{memory.title}」及其图片、音乐将被永久遗忘，无法找回。
+                </DialogDescription>
+                <div className="mt-5 flex justify-end gap-2">
+                  <DialogClose asChild>
+                    <button
+                      type="button"
+                      className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                    >
+                      取消
+                    </button>
+                  </DialogClose>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+                  >
+                    {deleting ? "遗忘中…" : "确认遗忘"}
+                  </button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </header>
 
@@ -330,6 +348,7 @@ export default function MemoryScene({
                 alt={current.caption ?? memory.title}
                 draggable={false}
                 decoding="async"
+                style={coverStyle({ x: current.focalX, y: current.focalY, scale: current.cropScale })}
                 className="aspect-[3/2] w-full touch-pan-y object-cover"
               />
             )}
@@ -369,7 +388,9 @@ export default function MemoryScene({
           <p className="text-sm tracking-wide text-white/60">{memory.location}</p>
           <h1 className="text-2xl font-semibold sm:text-3xl lg:text-4xl">{memory.title}</h1>
           {memory.description && (
-            <p className="max-w-2xl leading-7 text-white/75 sm:leading-8">{memory.description}</p>
+            <p className="max-w-2xl whitespace-pre-wrap break-words leading-7 text-white/75 sm:leading-8">
+              {memory.description}
+            </p>
           )}
         </div>
 

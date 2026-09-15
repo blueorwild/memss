@@ -32,6 +32,7 @@ export default function HistoryPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmBatch, setConfirmBatch] = useState(false);
 
   function toggle(id: string) {
     setSelected((s) => {
@@ -63,6 +64,7 @@ export default function HistoryPanel({
     } finally {
       setBusy(false);
       setConfirmClear(false);
+      setConfirmBatch(false);
     }
   }
 
@@ -130,7 +132,7 @@ export default function HistoryPanel({
         </button>
         <button
           type="button"
-          onClick={() => void remove([...selected])}
+          onClick={() => setConfirmBatch(true)}
           disabled={selected.size === 0 || busy}
           className="rounded-full border border-white/15 min-h-11 px-3 py-2.5 sm:min-h-0 text-white/70 transition-colors hover:bg-white/10 disabled:opacity-40"
         >
@@ -145,6 +147,30 @@ export default function HistoryPanel({
           清空全部
         </button>
       </div>
+
+      <Dialog open={confirmBatch} onOpenChange={setConfirmBatch}>
+        <DialogContent>
+          <DialogTitle>删除选中的 {selected.size} 条对话？</DialogTitle>
+          <DialogDescription>这些对话及其消息都会被永久删除，无法找回。</DialogDescription>
+          <div className="mt-4 flex justify-end gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setConfirmBatch(false)}
+              className="rounded-full border border-white/15 px-4 py-1.5 text-white/70 transition-colors hover:bg-white/10"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void remove([...selected])}
+              disabled={busy}
+              className="rounded-full bg-red-500/80 px-4 py-1.5 text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+            >
+              确认删除
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
         <DialogContent>

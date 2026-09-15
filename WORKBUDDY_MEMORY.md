@@ -44,8 +44,11 @@
 - P2 已完成：路由 `/star/[...path]`（`/` 重定向 `/star/globe`）、`StarfieldPage` 组装、`StarBackground`（Canvas 粒子+视差）、`Breadcrumb`、`CategoryStars`（星区/可点判定/镜头推进）、`MemoryCylinder`（CSS 3D 滚筒：时间→圆周角、seed 抖动、拖拽惯性、静止自转、下沿光轨、背面变暗）、`lib/layout-seed.ts`。
 - P2 设计定稿已写入 `PLAN.md` 第 11 节。
 - 依赖新增：`framer-motion` 13.2.0、`zustand` 5.0.15。
-- P3 已完成：`store/sprite.ts`（zustand）、`components/sprite/{Sprite,ActionBar,ChatPanel,UploadMemoryForm}.tsx`、`api/categories`（GET）、`api/memories`（POST multipart 上传，落盘 `media/uploads/`）；`layout.tsx` 已挂载 `<Sprite />`。对话为本地模拟流式（P4 接真实 LLM）。
-- 下一步：P4 Agent 能力（provider 配置化 + tool calling）。
+- P3 已完成：`store/sprite.ts`（zustand）、`components/sprite/{Sprite,ActionBar,ChatPanel,MemoryForm}.tsx`（`MemoryForm` 由 `UploadMemoryForm` 重构而来，支持新建/编辑）、`api/categories`（GET）、`api/memories`（POST multipart 上传，落盘 `media/uploads/`）；`layout.tsx` 已挂载 `<Sprite />`。对话为本地模拟流式（P4 接真实 LLM）。
+- P4 已完成：见下方「P4 Agent 能力（已完成）」。
+- Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–5 ✅，见文末两节。
+- 细节打磨（回忆编辑/封面/标题限字/历史批量删除确认/面板拖动）✅，见文末「细节打磨」节。
+- **下一步**：Phase 2 **Step 6**（移动端降载 + 桌面回归 + 375px 全流程验证）。
 
 ## 经验与坑
 
@@ -77,7 +80,7 @@
 - **页面头部统一**：面包屑在左 + 下方 `← 返回`（**根「地球」页隐藏返回**）；右上角危险操作统一叫「遗忘」。
 - **地理数据**：`world-countries`（国家中文名，250）+ `china-division`（省市）→ `npm run build:geo` 生成 `public/geo/{countries,china}.json`（共 ~16KB），前端懒加载，供新建类别候选（地球下=国家；中国下=省；中国省下=市）。
 
-## P4 Agent 能力（进行中）
+## P4 Agent 能力（已完成）
 - **选型**：`ai@7` + `@ai-sdk/openai-compatible@3` + `zod@4`，**不用 `@ai-sdk/react`**（前端手写 SSE，零额外依赖）。`streamText` + `tools` + `stopWhen: isStepCount(8)`，多步工具调用由 AI SDK 自动完成；服务端遍历 `result.fullStream`（`text-delta`/`tool-call`/`tool-result`/`tool-error`/`error`）编码为 SSE。
 - **SSE 事件协议**（自定义，简单）：`text`(delta) / `tool`(name,status) / `action`(客户端动作) / `memories`(卡片) / `error` / `done`。注意下发动作要包一层 `{type:"action", action:{...}}`，否则 `action.type` 会被内层覆盖。
 - **Provider 收敛为 `deepseek | opencode-go`**；`baseURL`/`headers` 属内部适配**不暴露**给用户，用户只选服务 + 填 key + 选模型。OpenCode Go 需 `x-opencode-session`（按对话注入）与自定义 UA；其 `/models` 可匿名拉取。
@@ -98,17 +101,64 @@
 - **卡片由模型决定**：新增 `showMemories({ memoryIds, total })` 工具——模型检索、过滤后**显式列出**本批要展示的 id（服务端 `slice(0,3)` 兜底），并下发 `memories` 事件；`searchMemories` 降为纯数据源、不再产生卡片。模型因能"看到完整会话（含历史工具结果）"，分批时能避开已展示的 id——实测"继续"能给出**不重复**的下一批。
 - **prompt**：检索时一轮最多一次 `searchMemories`；正文 2–3 句概括（数量 + 时间/地点/主题），**禁止逐条罗列**；>3 条时先给 3 条并提示"共 N 条、还有 X 条，说『继续』"；附正/反例。
 - **前端**：`ChatPanel` 以后端为准，`localStorage['sprite:conversationId']` 记住当前会话，打开面板自动拉历史；`HistoryPanel` 提供列表/切换/多选删除/清空（Dialog 确认）/新对话；删除当前会话时自动回到空白对话。
-- **踩坑：Next 16 dev 用 `127.0.0.1` 访问会阻止开发资源**（`/_next/hmr` 等报 "Blocked cross-origin request"），结果 **React 不 hydrate、所有点击/事件失效**（DOM 是 SSR 静态、元素上没有 `__react*` 属性），极易误判为"组件坏了"。**必须用 `http://localhost:3000` 访问**，或给 `next.config` 加 `allowedDevOrigins: ['127.0.0.1']`。判断 hydration 是否正常：检查元素是否有 `__reactProps$...` 属性。
-- **踩坑：`drizzle-kit push` 对 SQLite 加列会报 `no such column: "data"`**（drizzle-kit 的双引号问题）。规避：手动 `DROP/CREATE TABLE`（无有效数据时），再 push 验证无差异。
-- **性能观察**："中国里不在云南的"这类多步任务，`deepseek-v4.1-flash` 约 42s（多次 searchMemories/showMemories，接近 `stopWhen` 上限）；后续可优化 prompt 减少检索轮次。
+- **踩坑：Next 16 dev 用 `127.0.0.1` 访问会阻止开发资源**（`/_next/hmr` 等报 "Blocked cross-origin request"），结果 **React 不 hydrate、所有点击/事件失效**（DOM 是 SSR 静态、元素上没有 `__react*` 属性），极易误判为"组件坏了"。**当前解法**：`dev` 脚本固定 `next dev -H 127.0.0.1`，浏览器一律用 `http://localhost:3000`（同时避免了内网暴露）。替代方案是给 `next.config` 加 `allowedDevOrigins: ['127.0.0.1']`，但**它不是安全边界**。判断 hydration 是否正常：检查元素是否有 `__reactProps$...` 属性。
+- **踩坑：`drizzle-kit push` 对 SQLite 加列会报 `no such column: "data"`**（drizzle-kit 的双引号问题）。规避：无有效数据时手动 `DROP/CREATE TABLE`；**有数据时手动 `ALTER TABLE ... ADD COLUMN`（+ `UPDATE` 回填）**，再 push——报 `No changes detected` 即同步成功（`memories.created_at` 即此法）。
+- **性能观察**：Phase 1 优化前，"中国里不在云南的"这类多步任务约 42s（多次 searchMemories/showMemories，接近 `stopWhen` 上限）；补 `location` + 收紧 prompt 后降至约 13.5s。
 
 ## 1.0 上线路线图（已定，见 PLAN.md §13）
 - **部署方案**：家里另一台 **Windows x86 + Docker(WSL2)** 常开机器 + **Cloudflare Tunnel**（自购域名托管 CF，不用 Vercel——需 SQLite 持久化 + 本地媒体 + 长流式请求）。
 - **访问保护**：**应用内密码**（middleware + 登录页 + 签名 cookie），不用 Cloudflare Access。
 - **数据**：部署机与开发机都**重新 seed**，不迁移 `data/`（因此 API Key 需在新机重填）。
 - **手机端 1.0 范围**：导航/看回忆/上传/对话/历史。
-- **Phase**：1) Agent 优化（`searchMemories` 补 `location`、减检索轮次、空文本兜底、停止按钮、SSE 重试）→ 2) 移动端适配（底部抽屉、触控、音频解锁、降载）→ 3) 部署改造（`MEDIA_ROOT` 可配、密码保护、`output: standalone`、`/api/health`、Dockerfile+compose）→ 4) Windows 上机 + Cloudflare（域名/隧道/SSL/自启/手机验收）→ 5) 维护备份。
+- **Phase**：1) Agent 优化（✅ 补 `location`、减检索轮次、空文本兜底、停止按钮、SSE 重试、回复去重）→ 2) 移动端适配（Step 1–5 ✅：底部抽屉、触控、双轨布局、详情页固定底栏 + 滑动切图；Step 6 待做：降载/回归/全流程）→ 3) 部署改造（`MEDIA_ROOT` 可配、密码保护、`output: standalone`、`/api/health`、Dockerfile+compose）→ 4) Windows 上机 + Cloudflare（域名/隧道/SSL/自启/手机验收）→ 5) 维护备份。
 - **工作方式调整**：用户将**手动把项目上传到 GitHub 私有仓库**，然后**转移到另一台 Windows 电脑上继续开发**；**Phase 1 由用户在新机上进行**（我在本机先完成文档 + 迁移修复）。
 - **迁移修复（已做）**：① `data/.gitkeep` + `src/lib/db/index.ts` 在连接前 `mkdirSync` 兜底（原来 `/data` 整体被忽略，新机 clone 后无目录会打不开 DB）；② `.gitattributes`（`* text=auto eol=lf` + 二进制媒体标记）；③ `.env.example`（`.gitignore` 加 `!.env.example`）；④ `.gitignore` 改 `/data/*` + `!/data/.gitkeep`。
-- **迁移注意**：新机装 Git + Node 24；`npm ci`（`better-sqlite3` 若报编译错需装 VS Build Tools）；`.env` 需手动建；**dev 用 `http://localhost:3000`，勿用 `127.0.0.1`**（Next 16 会拦开发资源导致 React 不 hydrate）；`data/` 与 `media/uploads/` 不入库。
+- **迁移注意**：新机装 Git + Node 24；`npm ci`（`better-sqlite3` 若报编译错需装 VS Build Tools）；`.env` 需手动建；**dev 脚本固定 `-H 127.0.0.1`，浏览器用 `http://localhost:3000`**（Next 16 用 `127.0.0.1` 会拦开发资源导致 React 不 hydrate）；`data/` 与 `media/uploads/` 不入库。
 - **GitHub 上传提醒**：只上报 `git` 能跟踪的内容；**不要用网页拖拽上传**（不受 `.gitignore` 保护，会带上 `data/`、`.env`、`node_modules`）；仓库设 **Private**；项目无大文件，无需 LFS。
+
+## Phase 1：Agent 准确性与体验优化（已完成）
+- **回复重复修复**（`3f8361e`）：根因是 AI SDK 多步流程中，工具调用**前**模型会先输出一句预告文本，与最终答案重复。解法：按 `start-step`/`finish-step` 做**步骤级文本缓冲**，**仅下发「未调用工具」的最终步骤文本**；落库 `content` 对含工具调用的消息置空；`/api/conversations/[id]` 过滤「无 content 也无 cards」的 assistant。
+- **「这里/这片星空」绑定当前类别**（`3ae0bd5`）：把当前 `categoryId` 注入 prompt，模型据此检索当前子树。实测「中国」页 5 条、7.5s。
+- **`searchMemories` 补 `location`（+ 类别名）**、`limit` 默认 20 / 上限 50；prompt 收紧为「一轮最多检索一次、先尽量查全再过滤」；助手空文本兜底；流式期间「停止」（`AbortController`）+ 发送中锁定历史切换；SSE 断开/超时提示与重试。
+- **图片懒加载**：回忆缩略图/详情图 `loading="lazy"` + `decoding="async"`。
+- **dev server 绑定 `127.0.0.1`**（`fdba254`）：`dev` 脚本改 `next dev -H 127.0.0.1`。动机：原监听 `*:3000` 且 macOS 防火墙关闭 → 同网段可读数据 / 调用 `/api/agent` 白嫖 AI 额度 / 删数据。**`allowedDevOrigins` 不是安全边界。**
+- 效果：同类多步检索 42s → **13.5s**。
+
+## Phase 2：移动端适配（Step 1–5 已完成，Step 6 待做）
+- **统一「双轨」布局（已与用户确认，见 PLAN.md §13.3）**：宽屏（≥640px）= 上下**两行横向**轨道；窄屏 = 左右**两列纵向**轨道；手机横屏（矮容器）自动横向 + 紧凑/迷你卡片。每轨容量 `min(几何容量, 3)` → 阈值 6：`n ≤ 6` **平铺**（格内随机偏移 + 轻微旋转 + 缓缓浮动 + 第 2 轨错开半卡），`n > 6` **流动**（大半径滚筒 `R=max(长边×2.5,1200)`、仅渲染可见 + 屏外缓冲、两端 CSS mask 渐隐、随机起点、由旧至新、拖拽 + 惯性）。1 段居中、2 段间距 `1.5×卡宽`。
+- **卡片尺寸**：常规 200×140，紧凑 150×105，迷你（横屏）120×84；`FLOW_SPEED=12px/s`、`CARD_CAPTION=26`、`RADIUS_FACTOR=2.5`。`layout-seed.ts` 现导出 `TRACK_GAP=24`/`RAIL_MAIN=140`/`RAIL_MAIN_COMPACT=64`/`RAIL_CROSS=56`/`PER_TRACK_MAX=3`/`trackCapacity`/`trackCrossPositions`/`tileJitter`/`flowTilt`（已删 `gridScatter`/`timelineScatter`）。
+- **Step 1 地基**（`898bca4`）：`layout.tsx` 导出 `viewport`（`viewport-fit: cover`、`themeColor #05060a`、`interactiveWidget: "resizes-content"`）；`globals.css` 加 `--safe-*` 变量、`touch-action: manipulation`、`overscroll-behavior-y: none`、`-webkit-tap-highlight-color: transparent`、`body min-height: 100dvh`；全站 `h-screen`/`min-h-screen` → `h-dvh`/`min-h-dvh`。
+- **Step 2 底部抽屉**（`fc3d586`）：新增 `use-media-query.ts`（`MOBILE_QUERY="(max-width: 639px)"`、`useMediaQuery`/`useIsMobile`，用 `useSyncExternalStore`）；`Sprite` 窄屏改底部抽屉（`h-[min(78dvh,560px)] w-full rounded-t-2xl pb-[var(--safe-bottom)]`、遮罩 z-[65] 点击关闭、面板 z-[70]）、锁 body 滚动、悬浮球避让安全区。
+- **Step 3 面板窄屏化**（`36e7aba`，10 文件）：输入框 `text-base sm:text-sm`（**防 iOS 聚焦放大**）、主按钮 ≥44px、次要控件 ≥36px、`enterKeyHint="send"`、`DialogContent` 加 `max-h-[85dvh] overflow-y-auto`、`ActionBar` 窄屏三等分。
+- **Step 4 星空页**（`9e20e17` + `d72d583`）：新增 `use-element-size.ts`（`useElementSize`）与 `VerticalTimelineRail`；星距随容器收敛；窄屏纵向滚筒（`rotateX`、上下拖拽、背面剔除、自动上滚 1.5°/s）；纵向星轨在左、**上旧下新**、光标对齐弧线、竖短横长十字星芒；横竖滚筒均剔除背面卡片（带淡出）；手机横屏紧凑布局。
+- **双轨统一重塑**（`67c9ffb` + `40fbedf` + `d031bb2`）：`MemoryCylinder.tsx` 重写为「`MemoryCylinder` 判定 + `TileBoard` + `FlowTracks`」；`memories.created_at` 加列（无日期时排序用；`listMemoryCards` 排序改 `date ?? dayOf(createdAt)`）；`api/memories` 写 `createdAt: Date.now()`；星轨占位避让、每轨 ≤3 张稀疏化、平铺偏移限制在格内并双轨交错、横屏迷你卡片 + 星轨压缩；图片预热（缓冲 `max(step, 屏长×0.25)` + `loading="eager"` + 加载淡入 + `img.complete` 命中处理）；新增 `scripts/seed-demo.mjs`（`npm run seed:demo` / `seed:demo:clean`）。
+- **Step 5 详情页**（`76ba34a`）：`PlayButton`（▶/❚❚ + 呼吸光晕，`failed` 红框提示）、**移除自动播放**；左右滑动切图（`|dx|>40 且 |dx|>|dy|×1.5`）；header/main 窄屏 padding + 安全区；标题响应式；背景图 `blur-sm → blur-xs` + `draggable={false}`；**窄屏 fixed 底栏 `grid grid-cols-3`**（‹ / ▶ / › 同水平线）；`Sprite` 窄屏默认球位置上移 64px 避开底栏（effect deps 加 `isMobile`）。
+- **Step 6（待做）**：移动端降载（`StarBackground` 当前 `dpr = min(devicePixelRatio, 2)`、星数 `min(420, 面积/9000)`、每 2 帧绘制 → 窄屏 `dpr ≤ 1.5` 并按机型下调星数；小精灵粒子/星尘减半；尊重 `prefers-reduced-motion`）+ 桌面 1440×900 回归 + 375px 全流程验证（导航→详情→对话→上传→历史）。
+- **用户偏好（移动端）**：详情页**不要自动播放**（宽窄屏都手动）；窄屏用**固定底栏**放 ‹/▶/› 且三个按钮同水平线；支持**左右滑动切图**。
+- **踩坑**：
+  - **安全区 / 视口高度**：`--safe-*` 变量 + `100dvh`（不要 `100vh`，移动端地址栏会裁切）；`h-screen` 一律换 `h-dvh`。
+  - **`prefers-reduced-motion` 未覆盖**：降载时要一并处理（Step 6）。
+  - **`useSyncExternalStore` 做媒体查询**：避免 effect 内 `setState` 触发 `react-hooks/set-state-in-effect`；`useElementSize` 用 `setTimeout` 延迟初始化规避同一规则。
+  - **交叉方向必须避让星轨占位**（`RAIL_MAIN`/`RAIL_CROSS`），否则卡片与星轨重叠。
+  - **每轨 ≤3 张**并用「格内空隙 × 0.9」限制偏移；曾因副本偏移恰好一圈导致 3 倍冗余重叠、流动随机相位打乱均匀分布导致重叠（均已修）。
+  - **`seed:demo` 只动 demo 分支与 `media/seed/dm_*.svg`**，真实数据不受影响；覆盖 1/2/5/6/7/100 段用于验证平铺/流动阈值。
+  - 验证入口：`http://localhost:3000/star/globe` → 「测试数据」。
+
+## 细节打磨：回忆编辑等（已完成）
+- **编辑入口只走小精灵面板**（沿用「操作统一走小精灵」约定）：详情页 header「编辑」按钮、Agent 工具 `openEditMemory` 都只切到 `store.view="edit"` + `editMemoryId`。表单组件 `MemoryForm`（`mode: create|edit`）取代 `UploadMemoryForm`；编辑态先 `GET /api/memories/[id]` 回填。
+- **API**：新增 `GET`/`PATCH /api/memories/[id]`。`PATCH`（multipart）字段：`title/categoryId/date/description/location`、`keepImageIds`（有序 JSON）、`coverRef`（现有 mediaId 或 `new:<index>`）、`removeAudio`、`images[]`、`audio`。图片顺序 = 保留旧图（按 `keepImageIds`）在前、新增在后；音乐有新媒体即替换、`removeAudio=1` 即删除。公共上传逻辑抽到 `src/lib/media-upload.ts`（`saveUpload`/`validFiles`/`mediaTypeOf`/`extOf`）。
+- **`coverMediaId` 新增字段**（`memories`，可空；手动 `ALTER TABLE` + 回填无需，`drizzle-kit push` 报 No changes 即同步）。封面解析：显式封面（若仍在）→ 否则首张；**删除当前封面自动退回首张**；无图则 `null`。`coverRef` 用 `new:<i>` 指代本次新上传图片、用 mediaId 指代现有图片。
+- **标题长度按显示宽度**（`src/lib/title-limit.ts`）：汉字/全角/emoji=2、英数/半角=1，上限 **40 半角（20 汉字 / 40 字母）**；表单实时计数 `n/20 字` + 超限禁提交，POST/PATCH 服务端二次校验。
+- **迁移类别**：编辑表单改类别即可；Agent 新增 `moveMemory` 工具，**双保险二次确认**（`confirm` 参数 + 服务端校验最后一条用户消息含确认词），迁移后重算 `location`、下发 `moved` 动作刷新页面。
+- **历史对话多选删除**补二次确认弹层（此前只有「清空全部」有）；`HistoryPanel` 用 `confirmBatch` 状态复用 Dialog 模式。
+- **宽屏小精灵面板可拖动**：标题栏 `onPointerDown` 拖动（标题栏上的按钮不触发），手动拖过后与球解耦；**位置仅存内存、不持久化**，刷新复位；窄屏抽屉不变。
+- **踩坑（重要）：framer-motion 会把 `style` 里的 `x`/`y` 当成 transform，而不是 CSS 的 left/top。** 面板定位必须用 `left`/`top`（曾把 `derivedPanelPos` 写成返回 `{x,y}`，结果面板 `transform: translateX(...)`、`top` 失效贴到 0，拖动表现诡异）。已用 `type Box = { left; top }` 区分。
+- **踩坑：编辑类测试不要拿真实 seed 数据做破坏性验证。** `keepImageIds` 会过滤掉不属于该回忆的 media id（安全设计），我曾误用另一条回忆的 media id 做 PATCH，导致 `kept=[]` → 把该回忆媒体全删且 location 被清空。恢复办法：`scripts/seed.mjs` 是 `DELETE` 全库重建，**不能直接重跑**；需按 seed 定义单独恢复（临时脚本重生成 `media/seed/*.svg|wav` + 重建 media 行）。**此后一律新建一次性测试回忆做 PATCH/编辑验证**。
+- **描述多行显示**：详情页描述 `<p>` 必须用 `whitespace-pre-wrap`（**不要用 `pre-line`**，它会折叠前导空格，ASCII 画会错位）；`memory.description` 存的是含 `\n` 的原文。
+- **标题/描述不能 trim**：POST/PATCH 曾对整串 `.trim()`，把描述开头的缩进吃掉了。现改为原样保存，必填校验才 `trim()` 判空。注意：**用 `curl -F` 测带首尾空白的字段会误判**（curl 自己会去掉值两端空白），要用 `--form-string` 才准确。
+- **图片裁剪（焦点 + 缩放，object-position + transform）**：`media.focal_x/focal_y`（%）+ `crop_scale`（100–600，默认 100）。共享 `src/lib/crop.ts` 的 `coverStyle(crop, baseline)` 同时用在**瓷砖 / 卡片 / 详情主图 / 详情背景(叠 1.05) / 裁剪弹窗**，保证所见即所得。表单瓷砖：**单击=设封面**（延迟 230ms）、**双击=弹裁剪框**（`CropDialog`：固定 3:2 框，拖动平移按溢出比 1:1 跟手，滚轮/双指捏合/滑杆缩放，重置）。提交 `newFocal`（与 `images` 同序 `[{x,y,scale}]`）/`imageMeta`（有序 `[{id,x,y,scale}]`）；服务端 clamp x/y 0–100、scale 100–600。改图不改原文件。
+- **卡片比例统一 3:2**（`CARD_NORMAL {200,133}` / `COMPACT {150,100}` / `TINY {120,80}`），与详情页一致。表单里新选文件的预览用 `URL.createObjectURL`，在 effect 里同步到 ref、卸载时 `revokeObjectURL`（不能在 render 里写 ref，会被 `react-hooks/refs` 拦）。
+- **`CropDialog` 不能把「打开时用外部值重置」写成 effect**（会触发 `react-hooks/set-state-in-effect`）。做法：父组件 `{cropOpen && <CropDialog .../>}` 按需挂载，子组件用 `useState(() => clampCrop(value))` 初始化，关闭即卸载。
+- **3D 滚筒里 `getBoundingClientRect()` 因透视/旋转失真**，验证卡片布局比例要看 `getComputedStyle`/offset 尺寸，别看 rect。
+- **踩坑：全局快捷键不能无差别处理**。`MemoryScene`（←/→ 切图、空格播放、Esc 返回）与 `StarfieldPage`（Esc 上级）都用 window `keydown` + `preventDefault()`，导致在 `/memory/[id]` 用小精灵面板输入时 ←/→ 无法移动光标、**空格被拿去播放/暂停音乐（打不出空格）**、Esc 误返回。已抽象 `src/lib/dom.ts` 的 `shouldIgnorePageShortcut(e)`：目标在 `input/textarea/select/[contenteditable]` 内、存在 `[role="dialog"]`、或 `useSpriteStore.getState().open` 时忽略快捷键。
+

@@ -7,8 +7,8 @@ import { useIsMobile } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
+import MemoryForm from "./MemoryForm";
 import SettingsPanel from "./SettingsPanel";
-import UploadMemoryForm from "./UploadMemoryForm";
 
 /** 悬浮球直径与视口边距 */
 const BALL = 56;
@@ -25,6 +25,8 @@ const DUST_LIFE = 1.6;
 const REMOVE_OFFSET = 50;
 
 type Pt = { x: number; y: number };
+/** 面板定位用（CSS left/top，避免与 framer-motion 的 x/y transform 混淆） */
+type Box = { left: number; top: number };
 type DragState = { startX: number; startY: number; origin: Pt; moved: boolean };
 type Dust = { id: number; x: number; y: number; dx: number; dy: number; size: number };
 
@@ -45,6 +47,7 @@ const PARTICLES = Array.from({ length: 20 }, () => ({
 export default function Sprite() {
   const open = useSpriteStore((s) => s.open);
   const view = useSpriteStore((s) => s.view);
+  const editMemoryId = useSpriteStore((s) => s.editMemoryId);
   const toggle = useSpriteStore((s) => s.toggle);
   const close = useSpriteStore((s) => s.close);
 
@@ -52,6 +55,8 @@ export default function Sprite() {
   const [dragging, setDragging] = useState(false);
   const [trail, setTrail] = useState<{ id: number; x: number; y: number }[]>([]);
   const [dust, setDust] = useState<Dust[]>([]);
+  // 宽屏面板左上角坐标（null = 跟随球推算；手动拖过后与球解耦，刷新即复位）
+  const [panelPos, setPanelPos] = useState<Box | null>(null);
 
   // 窄屏：面板改为底部抽屉
   const isMobile = useIsMobile();
@@ -60,6 +65,8 @@ export default function Sprite() {
 
   const posRef = useRef<Pt | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  // 面板拖动状态
+  const panelDragRef = useRef<{ startX: number; startY: number; origin: Box } | null>(null);
   // 记录「本次交互是否发生了拖动」，用于区分点击与拖动（拖动后不弹面板）
   const justDraggedRef = useRef(false);
   const trailId = useRef(0);
@@ -188,18 +195,46 @@ export default function Sprite() {
     toggle();
   }
 
+  /** 由球位置推算面板默认位置（置于球左上方并限制在视口内） */
+  function derivedPanelPos(p: Pt): Box {
+    return {
+      left: Math.min(Math.max(8, p.x + BALL - 360), window.innerWidth - 368),
+      top: Math.max(8, p.y - 472),
+    };
+  }
+
+  /** 拖动面板标题栏：更新面板位置（仅存内存，刷新即复位） */
+  const onPanelPointerMove = useCallback((e: PointerEvent) => {
+    const d = panelDragRef.current;
+    if (!d) return;
+    setPanelPos({
+      left: Math.min(Math.max(8, d.origin.left + (e.clientX - d.startX)), window.innerWidth - 368),
+      top: Math.min(Math.max(8, d.origin.top + (e.clientY - d.startY)), window.innerHeight - 468),
+    });
+  }, []);
+
+  const onPanelPointerUp = useCallback(() => {
+    panelDragRef.current = null;
+    window.removeEventListener("pointermove", onPanelPointerMove);
+  }, [onPanelPointerMove]);
+
+  /** 在标题栏按下开始拖动面板（标题栏上的按钮不触发） */
+  function onPanelPointerDown(e: React.PointerEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const origin = panelPos ?? (pos ? derivedPanelPos(pos) : null);
+    if (!origin) return;
+    panelDragRef.current = { startX: e.clientX, startY: e.clientY, origin };
+    window.addEventListener("pointermove", onPanelPointerMove);
+    window.addEventListener("pointerup", onPanelPointerUp, { once: true });
+  }
+
   // 拖拽时粒子数量翻倍，更密集
   const particles = dragging
     ? [...PARTICLES, ...PARTICLES.map((p) => ({ ...p, dx: p.dx * 1.4, dy: p.dy * 1.4, delay: p.delay + 0.12 }))]
     : PARTICLES;
 
-  // 面板位置：置于球左上方并限制在视口内（pos 初始化后才会渲染面板）
-  const panelStyle = pos
-    ? {
-        left: Math.min(Math.max(8, pos.x + BALL - 360), window.innerWidth - 368),
-        top: Math.max(8, pos.y - 472),
-      }
-    : undefined;
+  // 面板位置：优先用户拖动的坐标，否则置于球左上方（pos 初始化后才会渲染面板）
+  const panelStyle = panelPos ?? (pos ? derivedPanelPos(pos) : undefined);
 
   const ballStyle = pos ? { left: pos.x, top: pos.y } : undefined;
 
@@ -295,8 +330,15 @@ export default function Sprite() {
                   }`
             }
           >
-            <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <span className="text-sm font-medium">小精灵</span>
+            <header
+              onPointerDown={isMobile ? undefined : onPanelPointerDown}
+              className={`flex items-center justify-between border-b border-white/10 px-4 py-3 ${
+                isMobile ? "" : "cursor-grab select-none active:cursor-grabbing"
+              }`}
+            >
+              <span className="text-sm font-medium">
+                {view === "edit" ? "编辑回忆" : view === "upload" ? "上传回忆" : "小精灵"}
+              </span>
               <button
                 type="button"
                 onClick={close}
@@ -311,7 +353,9 @@ export default function Sprite() {
               {view === "chat" ? (
                 <ChatPanel />
               ) : view === "upload" ? (
-                <UploadMemoryForm onDone={close} />
+                <MemoryForm mode="create" onDone={close} />
+              ) : view === "edit" && editMemoryId ? (
+                <MemoryForm mode="edit" memoryId={editMemoryId} onDone={close} />
               ) : (
                 <SettingsPanel />
               )}
