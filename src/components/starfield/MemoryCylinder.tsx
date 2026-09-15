@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -46,20 +46,30 @@ const CAPTION_CLS: Record<CardTier, string> = {
   tiny: "w-[120px]",
 };
 
-/** 回忆卡片外观：白色常驻微光 + hover 增强 */
+/** 回忆卡片外观：白色常驻微光 + hover 增强；图片加载完成后淡入 */
 function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }) {
+  const [loaded, setLoaded] = useState(false);
+  // 命中缓存时 onLoad 可能不触发，用 ref 回调主动检查一次
+  const onImgRef = useCallback((el: HTMLImageElement | null) => {
+    if (el?.complete) setLoaded(true);
+  }, []);
+
   return (
     <div
       className={`block overflow-hidden rounded-xl border border-white/15 bg-black/40 ring-1 ring-white/20 shadow-[0_0_18px_2px_rgba(255,255,255,0.18)] transition-shadow duration-300 hover:ring-white/45 hover:shadow-[0_0_28px_6px_rgba(255,255,255,0.32)] ${FACE_CLS[tier]}`}
     >
       {memory.cover ? (
         <img
+          ref={onImgRef}
           src={`/api/media/${memory.cover}`}
           alt={memory.title}
           draggable={false}
-          loading="lazy"
+          loading="eager"
           decoding="async"
-          className="h-full w-full object-cover"
+          onLoad={() => setLoaded(true)}
+          className={`h-full w-full object-cover transition-opacity duration-300 ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
         />
       ) : (
         <span className="flex h-full w-full items-center justify-center text-sm text-white/50">
@@ -159,19 +169,36 @@ function TileBoard({
   const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
   const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross);
 
+  // 只有 1~2 段时尽量居中：1 段完全居中；2 段向中心收拢（间距约 1.5 倍卡宽）
+  const zoneCenter = zoneStart + zoneLen / 2;
+  const centered = memories.length <= 2;
+  const crossOf = (track: number): number => {
+    if (memories.length === 1) return zoneCenter;
+    if (memories.length === 2) {
+      // 间距取 1.5 倍卡宽，但不超出可用区（窄屏空间有限时自动收拢）
+      const half = Math.min(
+        (cardCross + TRACK_GAP) * 0.75,
+        Math.max(0, (zoneLen - cardCross) / 2),
+      );
+      return zoneCenter + (track === 0 ? -half : half);
+    }
+    return trackCross[track];
+  };
+
   return (
     <>
       {placed.map(({ m, i, track, k, cnt }) => {
         const j = tileJitter(m.seed, i);
-        // 大幅随机偏移限制在本格空隙内：观感明显，又绝不与相邻卡片重叠
+        // 大幅随机偏移限制在本格空隙内：观感明显，又绝不与相邻卡片重叠；
+        // 只有 1~2 段时收窄偏移，保证整体仍居中
         const cell = avail / cnt;
-        const slack = Math.max(0, cell - cardMain);
+        const slack = centered ? avail * 0.25 : Math.max(0, cell - cardMain);
         // 第 2 轨整体错开半张卡：保证两轨同一索引不会排成一条线
         const stagger = track === 1 ? (cardMain + TRACK_GAP) * 0.5 : 0;
         const alongRaw =
           pad + ((k + 0.5) / cnt) * avail + stagger + j.along * slack * 0.9;
         const along = Math.min(mainLen - pad * 0.4, Math.max(pad * 0.4, alongRaw));
-        const cross = trackCross[track] + j.cross * zoneLen;
+        const cross = crossOf(track) + j.cross * zoneLen;
         return (
           <motion.div
             key={m.id}
@@ -332,6 +359,8 @@ function FlowTracks({
   for (let i = 0; i < memories.length; i++) counts[i % 2]++;
   const seen = [0, 0];
   const nodes: { key: string; m: MemoryCard; main: number; cross: number; rot: number }[] = [];
+  // 屏外提前渲染一段距离：让图片有时间加载完成，卡片滑入时不再「突然出现」
+  const buffer = Math.max(step, mainLen * 0.25);
   memories.forEach((m, i) => {
     const track = i % 2;
     const k = seen[track]++;
@@ -342,7 +371,7 @@ function FlowTracks({
     const raw = k * step + offset + tilt.jitter * TRACK_GAP * 0.6;
     const wrapped = ((raw % span) + span) % span;
     const main = wrapped - span / 2 + mainLen / 2;
-    if (main < -cardMain - CARD_CAPTION || main > mainLen + CARD_CAPTION) return;
+    if (main < -cardMain - buffer || main > mainLen + buffer) return;
     const cross = trackCross[track] + tilt.lag * zoneLen;
     // 大半径带来的轻微弧度
     const arc = ((main - mainLen / 2) / radius) * 57.2958;

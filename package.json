@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node scripts/seed.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "seed:demo:clean": "node scripts/seed-demo.mjs --clean",
     "build:geo": "node scripts/build-geo.mjs"
   },
   "dependencies": {
