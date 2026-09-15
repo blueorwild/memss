@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
+import { useIsMobile } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
@@ -52,6 +53,11 @@ export default function Sprite() {
   const [trail, setTrail] = useState<{ id: number; x: number; y: number }[]>([]);
   const [dust, setDust] = useState<Dust[]>([]);
 
+  // 窄屏：面板改为底部抽屉
+  const isMobile = useIsMobile();
+  // 底部安全区高度（px）：让悬浮球避开 iPhone 底部横条
+  const safeBottomRef = useRef(0);
+
   const posRef = useRef<Pt | null>(null);
   const dragRef = useRef<DragState | null>(null);
   // 记录「本次交互是否发生了拖动」，用于区分点击与拖动（拖动后不弹面板）
@@ -65,14 +71,21 @@ export default function Sprite() {
     const timer = window.setTimeout(() => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      let next: Pt = { x: w - MARGIN - BALL, y: h - MARGIN - BALL };
+      // 读取底部安全区（刘海屏底部横条），让球与其保持距离
+      const safeB =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom"),
+        ) || 0;
+      safeBottomRef.current = safeB;
+      const maxY = h - MARGIN - BALL - safeB;
+      let next: Pt = { x: w - MARGIN - BALL, y: maxY };
       try {
         const saved = localStorage.getItem(POS_KEY);
         if (saved) {
           const p = JSON.parse(saved) as Pt;
           next = {
             x: Math.min(Math.max(MARGIN, p.x), w - MARGIN - BALL),
-            y: Math.min(Math.max(MARGIN, p.y), h - MARGIN - BALL),
+            y: Math.min(Math.max(MARGIN, p.y), maxY),
           };
         }
       } catch {
@@ -83,6 +96,16 @@ export default function Sprite() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // 窄屏打开面板时锁定 body 滚动，避免背后内容跟随滑动
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open, isMobile]);
 
   // 拖拽移动：更新位置、记录拖尾光带点、并在路径上随机飞溅星尘粒子
   const onPointerMove = useCallback((e: PointerEvent) => {
@@ -97,7 +120,7 @@ export default function Sprite() {
     const h = window.innerHeight;
     const next = {
       x: Math.min(Math.max(MARGIN, d.origin.x + dx), w - MARGIN - BALL),
-      y: Math.min(Math.max(MARGIN, d.origin.y + dy), h - MARGIN - BALL),
+      y: Math.min(Math.max(MARGIN, d.origin.y + dy), h - MARGIN - BALL - safeBottomRef.current),
     };
     posRef.current = next;
     setPos(next);
@@ -242,18 +265,34 @@ export default function Sprite() {
           />
         ))}
 
-      {/* 展开面板 */}
+      {/* 展开面板：窄屏为底部抽屉（含遮罩），宽屏为球旁的浮动面板 */}
       <AnimatePresence>
+        {open && isMobile && (
+          <motion.div
+            key="sprite-mask"
+            onClick={close}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm"
+          />
+        )}
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.96 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            style={panelStyle}
-            className={`fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f18]/95 text-white shadow-2xl backdrop-blur-xl ${
-              panelStyle ? "" : "bottom-24 right-6"
-            }`}
+            key="sprite-panel"
+            initial={isMobile ? { y: "100%" } : { opacity: 0, y: 16, scale: 0.96 }}
+            animate={isMobile ? { y: 0 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={isMobile ? { y: "100%" } : { opacity: 0, y: 16, scale: 0.96 }}
+            transition={{ duration: isMobile ? 0.26 : 0.18, ease: "easeOut" }}
+            style={isMobile ? undefined : panelStyle}
+            className={
+              isMobile
+                ? "fixed inset-x-0 bottom-0 z-[70] flex h-[min(78dvh,560px)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-[#0b0f18]/95 pb-[var(--safe-bottom)] text-white shadow-2xl backdrop-blur-xl"
+                : `fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f18]/95 text-white shadow-2xl backdrop-blur-xl ${
+                    panelStyle ? "" : "bottom-24 right-6"
+                  }`
+            }
           >
             <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <span className="text-sm font-medium">小精灵</span>
