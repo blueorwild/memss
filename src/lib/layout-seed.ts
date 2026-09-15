@@ -98,14 +98,35 @@ export type FlatSlot = { x: number; y: number; rotate: number; scale: number };
 
 /** 卡片间距（px） */
 export const TRACK_GAP = 24;
+/** 横向轨道下方星轨占用高度（px）：常规 / 矮容器（手机横屏）压缩版 */
+export const RAIL_MAIN = 140;
+export const RAIL_MAIN_COMPACT = 64;
+/** 纵向轨道左侧星轨占用宽度（px） */
+export const RAIL_CROSS = 56;
+/** 每条轨道同屏最多完整卡片数（两轨合计不超过 6 张） */
+export const PER_TRACK_MAX = 3;
 
-/** 两条轨道在交叉方向上的中心位置（px）：保证两轨卡片不重叠 */
+/**
+ * 两条轨道在交叉方向上的中心位置（px）。
+ * @param zoneStart 可用区起点（已避开星轨）
+ * @param zoneLen   可用区长度
+ * @param cardCross 卡片在交叉方向的尺寸
+ */
 export function trackCrossPositions(
-  crossLen: number,
+  zoneStart: number,
+  zoneLen: number,
   cardCross: number,
 ): [number, number] {
-  const half = Math.max((cardCross + TRACK_GAP) / 2, crossLen * 0.18);
-  return [crossLen / 2 - half, crossLen / 2 + half];
+  // 两侧各留 6px 余量：卡片有轻微旋转/缩放，避免贴边被裁
+  const start = zoneStart + 6;
+  const len = Math.max(cardCross, zoneLen - 12);
+  const center = start + len / 2;
+  // 优先保证两轨不重叠；空间实在不足时退让为「不越界」（可能轻微重叠）
+  const half = Math.min(
+    Math.max(len * 0.25, (cardCross + TRACK_GAP) / 2),
+    Math.max(0, len / 2 - cardCross / 2),
+  );
+  return [center - half, center + half];
 }
 
 /** 沿轨道方向可容纳的卡片数：用于平铺排布与「平铺/流动」判定 */

@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
+  PER_TRACK_MAX,
+  RAIL_CROSS,
+  RAIL_MAIN,
+  RAIL_MAIN_COMPACT,
   TRACK_GAP,
   flowTilt,
   tileJitter,
@@ -16,27 +20,37 @@ import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import type { MemoryCard } from "@/lib/db/queries";
 import TimelineRail, { VerticalTimelineRail } from "./TimelineRail";
 
-/** 宽屏卡片尺寸 */
+/** 卡片尺寸三档：宽屏 / 窄屏 / 手机横屏（空间极紧张） */
 const CARD_NORMAL = { w: 200, h: 140 };
-/** 窄屏 / 横屏紧凑卡片尺寸 */
 const CARD_COMPACT = { w: 150, h: 105 };
+const CARD_TINY = { w: 120, h: 84 };
 /** 自动流动速度（px/s） */
 const FLOW_SPEED = 12;
-/** 卡片标题占用的纵向长度（含间距，px）：算轨道步长用，避免相邻卡片贴合 */
+/** 卡片标题占用的纵向长度（含间距，px）：算轨道步长用 */
 const CARD_CAPTION = 26;
 /** 「大半径滚筒」半径系数：相对视口长边，越大越接近平面流动 */
 const RADIUS_FACTOR = 2.5;
 
+type CardTier = "normal" | "compact" | "tiny";
 type CardSize = { w: number; h: number };
 type Size = { w: number; h: number };
 
+const FACE_CLS: Record<CardTier, string> = {
+  normal: "h-[140px] w-[200px]",
+  compact: "h-[105px] w-[150px]",
+  tiny: "h-[84px] w-[120px]",
+};
+const CAPTION_CLS: Record<CardTier, string> = {
+  normal: "w-[200px]",
+  compact: "w-[150px]",
+  tiny: "w-[120px]",
+};
+
 /** 回忆卡片外观：白色常驻微光 + hover 增强 */
-function MemoryCardFace({ memory, compact = false }: { memory: MemoryCard; compact?: boolean }) {
+function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }) {
   return (
     <div
-      className={`block overflow-hidden rounded-xl border border-white/15 bg-black/40 ring-1 ring-white/20 shadow-[0_0_18px_2px_rgba(255,255,255,0.18)] transition-shadow duration-300 hover:ring-white/45 hover:shadow-[0_0_28px_6px_rgba(255,255,255,0.32)] ${
-        compact ? "h-[105px] w-[150px]" : "h-[140px] w-[200px]"
-      }`}
+      className={`block overflow-hidden rounded-xl border border-white/15 bg-black/40 ring-1 ring-white/20 shadow-[0_0_18px_2px_rgba(255,255,255,0.18)] transition-shadow duration-300 hover:ring-white/45 hover:shadow-[0_0_28px_6px_rgba(255,255,255,0.32)] ${FACE_CLS[tier]}`}
     >
       {memory.cover ? (
         <img
@@ -74,23 +88,34 @@ export default function MemoryCylinder({ memories }: { memories: MemoryCard[] })
 
   // 窄屏竖屏 → 纵向轨道（左右两列）；宽屏/横屏 → 横向轨道（上下两行）
   const vertical = isMobile;
-  // 矮容器（手机横屏）用紧凑卡片
-  const compact = isMobile || (size.h > 0 && size.h < 480);
-  const card = compact ? CARD_COMPACT : CARD_NORMAL;
+  // 卡片档位：手机横屏（很矮）→ 迷你；窄屏/较矮 → 紧凑；其余 → 常规
+  const tier: CardTier =
+    size.h > 0 && size.h < 420
+      ? "tiny"
+      : isMobile || (size.h > 0 && size.h < 520)
+        ? "compact"
+        : "normal";
+  const card = tier === "tiny" ? CARD_TINY : tier === "compact" ? CARD_COMPACT : CARD_NORMAL;
 
   const mainAvail = vertical ? size.h : size.w;
   const cardMain = vertical ? card.h : card.w;
+  // 每条轨道同屏最多 PER_TRACK_MAX 张（两轨合计 ≤ 6）：超过则整体转为流动形态
   const capacity =
-    mainAvail > 0 ? trackCapacity(mainAvail - TRACK_GAP * 3, cardMain + CARD_CAPTION) : 3;
+    mainAvail > 0
+      ? Math.min(
+          trackCapacity(mainAvail - TRACK_GAP * 3, cardMain + CARD_CAPTION),
+          PER_TRACK_MAX,
+        )
+      : PER_TRACK_MAX;
   const threshold = capacity * 2;
 
   return (
     <div ref={ref} className="absolute inset-0">
       {size.w > 0 &&
         (memories.length <= threshold ? (
-          <TileBoard memories={memories} card={card} vertical={vertical} size={size} />
+          <TileBoard memories={memories} card={card} tier={tier} vertical={vertical} size={size} />
         ) : (
-          <FlowTracks memories={memories} card={card} vertical={vertical} size={size} />
+          <FlowTracks memories={memories} card={card} tier={tier} vertical={vertical} size={size} />
         ))}
     </div>
   );
@@ -100,11 +125,13 @@ export default function MemoryCylinder({ memories }: { memories: MemoryCard[] })
 function TileBoard({
   memories,
   card,
+  tier,
   vertical,
   size,
 }: {
   memories: MemoryCard[];
   card: CardSize;
+  tier: CardTier;
   vertical: boolean;
   size: Size;
 }) {
@@ -123,20 +150,28 @@ function TileBoard({
   const mainLen = vertical ? size.h : size.w;
   const crossLen = vertical ? size.w : size.h;
   const cardMain = vertical ? card.h : card.w;
+  const cardCross = vertical ? card.w : card.h;
   const pad = TRACK_GAP * 1.5;
   const avail = Math.max(1, mainLen - pad * 2);
-  const compact = card.w === CARD_COMPACT.w;
-  const trackCross = trackCrossPositions(crossLen, vertical ? card.w : card.h);
+  // 交叉方向可用区：纵向轨道避开左侧星轨，横向轨道避开底部星轨
+  const railMain = size.h < 420 ? RAIL_MAIN_COMPACT : RAIL_MAIN;
+  const zoneStart = vertical ? RAIL_CROSS : 0;
+  const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
+  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross);
 
   return (
     <>
       {placed.map(({ m, i, track, k, cnt }) => {
         const j = tileJitter(m.seed, i);
-        // 「大幅随机偏移」以卡片自身尺寸为基准（不是整条轨道），避免单张卡片被推得很偏
+        // 大幅随机偏移限制在本格空隙内：观感明显，又绝不与相邻卡片重叠
+        const cell = avail / cnt;
+        const slack = Math.max(0, cell - cardMain);
+        // 第 2 轨整体错开半张卡：保证两轨同一索引不会排成一条线
+        const stagger = track === 1 ? (cardMain + TRACK_GAP) * 0.5 : 0;
         const alongRaw =
-          pad + ((k + 0.5) / cnt) * avail + j.along * (cardMain + TRACK_GAP) * 2.4;
+          pad + ((k + 0.5) / cnt) * avail + stagger + j.along * slack * 0.9;
         const along = Math.min(mainLen - pad * 0.4, Math.max(pad * 0.4, alongRaw));
-        const cross = trackCross[track] + j.cross * crossLen;
+        const cross = trackCross[track] + j.cross * zoneLen;
         return (
           <motion.div
             key={m.id}
@@ -159,14 +194,14 @@ function TileBoard({
                 onClick={() => router.push(`/memory/${m.id}`)}
                 className="block cursor-pointer outline-none"
               >
-                <MemoryCardFace memory={m} compact={compact} />
-                <p
-                  className={`mt-2 truncate text-center text-xs text-white/70 ${
-                    compact ? "w-[150px]" : "w-[200px]"
-                  }`}
-                >
-                  {m.title}
-                </p>
+                <MemoryCardFace memory={m} tier={tier} />
+                {tier !== "tiny" && (
+                  <p
+                    className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
+                  >
+                    {m.title}
+                  </p>
+                )}
               </button>
             </div>
           </motion.div>
@@ -176,7 +211,7 @@ function TileBoard({
       {vertical ? (
         <VerticalTimelineRail memories={memories} />
       ) : (
-        <TimelineRail memories={memories} />
+        <TimelineRail memories={memories} compact={size.h < 420} />
       )}
     </>
   );
@@ -186,11 +221,13 @@ function TileBoard({
 function FlowTracks({
   memories,
   card,
+  tier,
   vertical,
   size,
 }: {
   memories: MemoryCard[];
   card: CardSize;
+  tier: CardTier;
   vertical: boolean;
   size: Size;
 }) {
@@ -201,11 +238,16 @@ function FlowTracks({
   const mainLen = vertical ? size.h : size.w;
   const crossLen = vertical ? size.w : size.h;
   const cardMain = vertical ? card.h : card.w;
-  const step = cardMain + CARD_CAPTION + TRACK_GAP;
+  const cardCross = vertical ? card.w : card.h;
+  // 稀疏化：每条轨道同屏最多 PER_TRACK_MAX 张完整卡片
+  const step = Math.max(cardMain + CARD_CAPTION + TRACK_GAP, mainLen / PER_TRACK_MAX);
   // 半径设得远大于屏幕：滚筒退化为接近平面的流动，只在两端留下很轻的弧度
   const radius = Math.max(mainLen * RADIUS_FACTOR, 1200);
-  const compact = card.w === CARD_COMPACT.w;
-  const trackCross = trackCrossPositions(crossLen, vertical ? card.w : card.h);
+  // 交叉方向可用区：纵向轨道避开左侧星轨，横向轨道避开底部星轨
+  const railMain = size.h < 420 ? RAIL_MAIN_COMPACT : RAIL_MAIN;
+  const zoneStart = vertical ? RAIL_CROSS : 0;
+  const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
+  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross);
 
   const offsetRef = useRef(0);
   const velocityRef = useRef(0);
@@ -284,11 +326,12 @@ function FlowTracks({
     router.push(`/memory/${id}`);
   }
 
-  // 计算可见卡片（含一张卡缓冲，滑动时不闪）
+  // 计算可见卡片（含一张卡缓冲，滑动时不闪）。
+  // 稀疏化后 span 远大于屏幕，循环边界的跳变发生在屏幕外（且被两端渐隐遮住），不会看到瞬移。
   const counts = [0, 0];
   for (let i = 0; i < memories.length; i++) counts[i % 2]++;
   const seen = [0, 0];
-  const nodes: { m: MemoryCard; main: number; cross: number; rot: number }[] = [];
+  const nodes: { key: string; m: MemoryCard; main: number; cross: number; rot: number }[] = [];
   memories.forEach((m, i) => {
     const track = i % 2;
     const k = seen[track]++;
@@ -300,10 +343,16 @@ function FlowTracks({
     const wrapped = ((raw % span) + span) % span;
     const main = wrapped - span / 2 + mainLen / 2;
     if (main < -cardMain - CARD_CAPTION || main > mainLen + CARD_CAPTION) return;
-    const cross = trackCross[track] + tilt.lag * crossLen;
+    const cross = trackCross[track] + tilt.lag * zoneLen;
     // 大半径带来的轻微弧度
     const arc = ((main - mainLen / 2) / radius) * 57.2958;
-    nodes.push({ m, main, cross, rot: tilt.rotate + (vertical ? -arc : arc) });
+    nodes.push({
+      key: m.id,
+      m,
+      main,
+      cross,
+      rot: tilt.rotate + (vertical ? -arc : arc),
+    });
   });
 
   // 当前最接近屏幕中心的卡片：供星轨光标使用
@@ -336,9 +385,9 @@ function FlowTracks({
         className="absolute inset-0"
         style={{ maskImage: mask, WebkitMaskImage: mask }}
       >
-        {nodes.map(({ m, main, cross, rot }) => (
+        {nodes.map(({ key, m, main, cross, rot }) => (
           <div
-            key={m.id}
+            key={key}
             className="absolute"
             style={{
               left: vertical ? cross : main,
@@ -351,14 +400,14 @@ function FlowTracks({
               onClick={() => openMemory(m.id)}
               className="block cursor-pointer outline-none"
             >
-              <MemoryCardFace memory={m} compact={compact} />
-              <p
-                className={`mt-2 truncate text-center text-xs text-white/70 ${
-                  compact ? "w-[150px]" : "w-[200px]"
-                }`}
-              >
-                {m.title}
-              </p>
+              <MemoryCardFace memory={m} tier={tier} />
+              {tier !== "tiny" && (
+                <p
+                  className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
+                >
+                  {m.title}
+                </p>
+              )}
             </button>
           </div>
         ))}
@@ -367,7 +416,7 @@ function FlowTracks({
       {vertical ? (
         <VerticalTimelineRail memories={memories} activeId={activeId} showCursor />
       ) : (
-        <TimelineRail memories={memories} activeId={activeId} showCursor />
+        <TimelineRail memories={memories} activeId={activeId} showCursor compact={size.h < 420} />
       )}
     </div>
   );

@@ -36,10 +36,13 @@ export default function TimelineRail({
   memories,
   activeId,
   showCursor = false,
+  compact = false,
 }: {
   memories: MemoryCard[];
   activeId?: string | null;
   showCursor?: boolean;
+  /** 矮容器（手机横屏）：压缩星轨高度，给卡片让位 */
+  compact?: boolean;
 }) {
   const months = memories
     .map((m) => monthIndex(m.date))
@@ -66,7 +69,11 @@ export default function TimelineRail({
   const cursor = activeMi !== null ? arcPoint(toT(activeMi)) : null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[140px] w-full">
+    <div
+      className={`pointer-events-none absolute inset-x-0 bottom-0 w-full ${
+        compact ? "h-[64px]" : "h-[140px]"
+      }`}
+    >
       <svg
         viewBox="0 0 1000 260"
         preserveAspectRatio="none"
