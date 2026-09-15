@@ -170,6 +170,7 @@ export default function MemoryScene({
           <img
             src={`/api/media/${current.path}`}
             alt=""
+            decoding="async"
             className="h-full w-full scale-105 object-cover opacity-40 blur-sm"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
@@ -244,6 +245,7 @@ export default function MemoryScene({
                 key={current.id}
                 src={`/api/media/${current.path}`}
                 alt={current.caption ?? memory.title}
+                decoding="async"
                 className="aspect-[3/2] w-full object-cover"
               />
             )}

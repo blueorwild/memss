@@ -34,6 +34,8 @@ function MemoryCardFace({ memory }: { memory: MemoryCard }) {
           src={`/api/media/${memory.cover}`}
           alt={memory.title}
           draggable={false}
+          loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover"
         />
       ) : (
