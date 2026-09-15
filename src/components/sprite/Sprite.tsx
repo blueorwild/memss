@@ -71,11 +71,12 @@ export default function Sprite() {
     const timer = window.setTimeout(() => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      // 读取底部安全区（刘海屏底部横条），让球与其保持距离
+      // 读取底部安全区（刘海屏底部横条），让球与其保持距离；
+      // 窄屏再让开详情页固定底栏，避免球压住底栏按钮
       const safeB =
-        parseFloat(
+        (parseFloat(
           getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom"),
-        ) || 0;
+        ) || 0) + (isMobile ? 64 : 0);
       safeBottomRef.current = safeB;
       const maxY = h - MARGIN - BALL - safeB;
       let next: Pt = { x: w - MARGIN - BALL, y: maxY };
@@ -95,7 +96,7 @@ export default function Sprite() {
       setPos(next);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [isMobile]);
 
   // 窄屏打开面板时锁定 body 滚动，避免背后内容跟随滑动
   useEffect(() => {

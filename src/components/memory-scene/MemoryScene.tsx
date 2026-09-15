@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import Breadcrumb from "@/components/starfield/Breadcrumb";
 import {
   Dialog,
@@ -13,6 +14,52 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Category, MemoryWithMedia } from "@/lib/db/queries";
+
+/** 播放/暂停背景音乐按钮：带呼吸光晕（未播放时更明显，提示可点） */
+function PlayButton({
+  playing,
+  failed,
+  onClick,
+  size = "md",
+}: {
+  playing: boolean;
+  failed: boolean;
+  onClick: () => void;
+  size?: "md" | "lg";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={playing ? "暂停背景音乐" : "播放背景音乐"}
+      title={failed ? "音乐暂时无法播放" : undefined}
+      className={`relative flex shrink-0 items-center justify-center rounded-full border text-white backdrop-blur transition-colors ${
+        size === "lg" ? "h-14 w-14 text-xl" : "h-12 w-12 text-lg"
+      } ${
+        failed
+          ? "border-red-400/50 bg-red-500/10 hover:bg-red-500/20"
+          : "border-white/25 bg-white/10 hover:bg-white/20"
+      }`}
+    >
+      <motion.span
+        className="pointer-events-none absolute inset-0 rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(160,215,255,0.45) 0%, rgba(124,196,255,0) 70%)",
+        }}
+        animate={
+          playing
+            ? { scale: [1, 1.15, 1], opacity: [0.45, 0.75, 0.45] }
+            : { scale: [1, 1.4, 1], opacity: [0.35, 0.9, 0.35] }
+        }
+        transition={{ duration: playing ? 3 : 1.8, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <span aria-hidden className="relative">
+        {playing ? "❚❚" : "▶"}
+      </span>
+    </button>
+  );
+}
 
 export default function MemoryScene({
   memory,
@@ -26,6 +73,8 @@ export default function MemoryScene({
   const audio = memory.media.find((m) => m.type === "audio");
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // 播放失败（浏览器拦截 / 音频不可用）时给出可见提示
+  const [failed, setFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -85,7 +134,14 @@ export default function MemoryScene({
     const seq = ++playSeqRef.current;
     el.currentTime = 0;
     el.volume = 0;
-    await el.play();
+    try {
+      await el.play();
+    } catch {
+      setFailed(true);
+      setPlaying(false);
+      return;
+    }
+    setFailed(false);
     if (playSeqRef.current !== seq) return;
     fadeVolume(el, 1, 1500);
     setPlaying(true);
@@ -111,13 +167,27 @@ export default function MemoryScene({
     else void startPlayback();
   }, [audio, playing, startPlayback, stopPlayback]);
 
-  // 进入详情页时若有背景音乐则尝试自动播放；被浏览器拦截则静默回退（保留手动按钮）
-  const autoPlayedRef = useRef(false);
-  useEffect(() => {
-    if (!audio || autoPlayedRef.current) return;
-    autoPlayedRef.current = true;
-    startPlayback().catch(() => setPlaying(false));
-  }, [audio, startPlayback]);
+  /** 左右滑动切换图片：位移 >40px 且以水平为主方向（不干扰纵向滚动） */
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  const onSwipeStart = useCallback((e: React.PointerEvent) => {
+    swipeRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+  const onSwipeEnd = useCallback(
+    (e: React.PointerEvent) => {
+      const s = swipeRef.current;
+      swipeRef.current = null;
+      if (!s) return;
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        changeImage(dx < 0 ? 1 : -1);
+      }
+    },
+    [changeImage],
+  );
+  const onSwipeCancel = useCallback(() => {
+    swipeRef.current = null;
+  }, []);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -170,20 +240,21 @@ export default function MemoryScene({
           <img
             src={`/api/media/${current.path}`}
             alt=""
+            draggable={false}
             decoding="async"
-            className="h-full w-full scale-105 object-cover opacity-40 blur-sm"
+            className="h-full w-full scale-105 object-cover opacity-40 blur-xs"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
         </div>
       )}
 
-      <header className="relative z-10 flex items-start justify-between gap-4 px-6 py-5">
+      <header className="relative z-10 flex items-start justify-between gap-4 px-4 py-3 pt-[calc(var(--safe-top)+12px)] sm:px-6 sm:py-5 sm:pt-5">
         <div className="flex flex-col gap-2">
           <Breadcrumb items={crumbItems} />
           <button
             type="button"
             onClick={handleBack}
-            className="inline-flex w-fit items-center gap-1 text-sm text-white/60 transition-colors hover:text-white"
+            className="-my-1 inline-flex w-fit items-center gap-1 px-1 py-1.5 text-sm text-white/60 transition-colors hover:text-white"
           >
             ← 返回
           </button>
@@ -194,7 +265,7 @@ export default function MemoryScene({
             <DialogTrigger asChild>
               <button
                 type="button"
-                className="text-sm text-red-300/80 transition-colors hover:text-red-300"
+                className="-my-1 px-1 py-1.5 text-sm text-red-300/80 transition-colors hover:text-red-300"
               >
                 遗忘
               </button>
@@ -227,26 +298,39 @@ export default function MemoryScene({
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-8 px-6 pb-16">
+      <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-5 px-4 pb-28 sm:gap-8 sm:px-6 sm:pb-16">
+        {/* 宽屏：播放按钮在图片上方正中（独立一行） */}
+        {audio && (
+          <div className="hidden justify-center sm:flex">
+            <PlayButton playing={playing} failed={failed} onClick={togglePlayback} size="lg" />
+          </div>
+        )}
+
         <div className="flex items-center gap-3">
           {images.length > 1 && (
             <button
               type="button"
               onClick={() => changeImage(-1)}
               aria-label="上一张"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/75 backdrop-blur transition-colors hover:bg-white/15 hover:text-white"
+              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/75 backdrop-blur transition-colors hover:bg-white/15 hover:text-white sm:flex"
             >
               ‹
             </button>
           )}
-          <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
+          <div
+            className="relative flex-1 overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+            onPointerDown={onSwipeStart}
+            onPointerUp={onSwipeEnd}
+            onPointerCancel={onSwipeCancel}
+          >
             {current && (
               <img
                 key={current.id}
                 src={`/api/media/${current.path}`}
                 alt={current.caption ?? memory.title}
+                draggable={false}
                 decoding="async"
-                className="aspect-[3/2] w-full object-cover"
+                className="aspect-[3/2] w-full touch-pan-y object-cover"
               />
             )}
           </div>
@@ -255,7 +339,7 @@ export default function MemoryScene({
               type="button"
               onClick={() => changeImage(1)}
               aria-label="下一张"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/75 backdrop-blur transition-colors hover:bg-white/15 hover:text-white"
+              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/75 backdrop-blur transition-colors hover:bg-white/15 hover:text-white sm:flex"
             >
               ›
             </button>
@@ -263,41 +347,67 @@ export default function MemoryScene({
         </div>
 
         {images.length > 1 && (
-          <div className="flex justify-center gap-2">
+          <div className="flex justify-center gap-1">
             {images.map((img, i) => (
               <button
                 key={img.id}
                 onClick={() => setIndex(i)}
                 aria-label={`第 ${i + 1} 张`}
-                className={`h-1.5 rounded-full transition-all ${
-                  i === index ? "w-6 bg-white" : "w-1.5 bg-white/40 hover:bg-white/60"
-                }`}
-              />
+                className="p-2"
+              >
+                <span
+                  className={`block h-1.5 rounded-full transition-all ${
+                    i === index ? "w-6 bg-white" : "w-1.5 bg-white/40"
+                  }`}
+                />
+              </button>
             ))}
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <p className="text-sm tracking-wide text-white/60">{memory.location}</p>
-          <h1 className="text-3xl font-semibold sm:text-4xl">{memory.title}</h1>
+          <h1 className="text-2xl font-semibold sm:text-3xl lg:text-4xl">{memory.title}</h1>
           {memory.description && (
-            <p className="max-w-2xl leading-8 text-white/75">{memory.description}</p>
+            <p className="max-w-2xl leading-7 text-white/75 sm:leading-8">{memory.description}</p>
           )}
         </div>
 
         {audio && (
-          <div>
-            <button
-              onClick={togglePlayback}
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm backdrop-blur transition-colors hover:bg-white/10"
-            >
-              <span aria-hidden>{playing ? "❚❚" : "▶"}</span>
-              <span>{playing ? "暂停" : "播放背景音乐"}</span>
-            </button>
-            <audio ref={audioElRef} src={`/api/media/${audio.path}`} loop preload="auto" />
-          </div>
+          <audio ref={audioElRef} src={`/api/media/${audio.path}`} loop preload="metadata" />
         )}
       </main>
+
+      {/* 窄屏固定底栏：切图按钮在左右两侧，播放按钮居中（同一水平线） */}
+      <div className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 items-center border-t border-white/10 bg-neutral-950/80 px-4 pt-3 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur sm:hidden">
+        {images.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => changeImage(-1)}
+            aria-label="上一张"
+            className="flex h-12 w-12 items-center justify-center justify-self-start rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/80 transition-colors active:bg-white/20"
+          >
+            ‹
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="justify-self-center">
+          {audio && <PlayButton playing={playing} failed={failed} onClick={togglePlayback} />}
+        </div>
+        {images.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => changeImage(1)}
+            aria-label="下一张"
+            className="flex h-12 w-12 items-center justify-center justify-self-end rounded-full border border-white/20 bg-white/5 text-2xl leading-none text-white/80 transition-colors active:bg-white/20"
+          >
+            ›
+          </button>
+        ) : (
+          <span />
+        )}
+      </div>
     </div>
   );
 }
