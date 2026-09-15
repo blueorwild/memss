@@ -164,3 +164,130 @@ export default function TimelineRail({
     </div>
   );
 }
+
+/**
+ * 纵向时间轴（窄屏）：贴左侧竖直排列（下早、上晚），
+ * 与纵向滚筒的当前卡片联动显示光标。
+ */
+export function VerticalTimelineRail({
+  memories,
+  activeId,
+  showCursor = false,
+}: {
+  memories: MemoryCard[];
+  activeId?: string | null;
+  showCursor?: boolean;
+}) {
+  const months = memories
+    .map((m) => monthIndex(m.date))
+    .filter((v): v is number => v !== null);
+  if (months.length === 0) return null;
+
+  const minM = Math.min(...months);
+  const maxM = Math.max(...months);
+  const span = Math.max(1, maxM - minM);
+  const toT = (mi: number) => (mi - minM) / span;
+
+  // 竖直弧线：x 在 0..56（中间略外凸），t=0 在下（早）、t=1 在上（晚）
+  const arc = Array.from({ length: 61 }, (_, i) => {
+    const t = i / 60;
+    return { x: r3(28 + 14 * Math.sin(t * Math.PI)), y: r3(1000 - t * 1000) };
+  });
+
+  const years = Array.from(
+    new Set(memories.map((m) => (m.date ?? "").slice(0, 4)).filter(Boolean)),
+  );
+  const yearMarks = years.map((year, i) => {
+    const t = years.length === 1 ? 0.5 : i / (years.length - 1);
+    return { year, t };
+  });
+
+  const active = showCursor && activeId ? memories.find((m) => m.id === activeId) : null;
+  const activeMi = active ? monthIndex(active.date) : null;
+  const cursorT = activeMi !== null ? toT(activeMi) : null;
+
+  return (
+    <div className="pointer-events-none absolute bottom-0 left-0 top-0 w-14">
+      <svg
+        viewBox="0 0 56 1000"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
+      >
+        <defs>
+          <linearGradient id="vRailGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(150,180,255,0)" />
+            <stop offset="50%" stopColor="rgba(150,180,255,0.72)" />
+            <stop offset="100%" stopColor="rgba(150,180,255,0)" />
+          </linearGradient>
+        </defs>
+        <polyline
+          points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#vRailGrad)"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgba(150,180,255,0.55))" }}
+        />
+      </svg>
+
+      {yearMarks.map(({ year, t }) => (
+        <span
+          key={year}
+          className="absolute text-[12px] tracking-wide"
+          style={{
+            left: "50%",
+            top: `${r3((1 - t) * 100)}%`,
+            transform: "translate(-50%, -50%)",
+            color: "rgba(255,255,255,0.85)",
+            fontFamily: HAND_FONT,
+          }}
+        >
+          {year}
+        </span>
+      ))}
+
+      {cursorT !== null && (
+        <motion.div
+          className="absolute"
+          initial={false}
+          animate={{ left: "50%", top: `${r3((1 - cursorT) * 100)}%` }}
+          transition={{ type: "spring", stiffness: 110, damping: 22 }}
+          style={{ x: "-50%", y: "-50%" }}
+        >
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 40,
+              height: 40,
+              transform: "translate(-50%, -50%)",
+              background:
+                "radial-gradient(circle, rgba(255,240,190,0.3) 0%, rgba(255,240,190,0) 70%)",
+              filter: "blur(6px)",
+            }}
+          />
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 26,
+              height: 3,
+              transform: "translate(-50%, -50%)",
+              background:
+                "linear-gradient(to right, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+              filter: "blur(1px)",
+              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+            }}
+          />
+          <div
+            className="absolute left-0 top-0 rounded-full"
+            style={{
+              width: 4,
+              height: 4,
+              transform: "translate(-50%, -50%)",
+              background: "#fffaf0",
+            }}
+          />
+        </motion.div>
+      )}
+    </div>
+  );
+}

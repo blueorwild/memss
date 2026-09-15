@@ -58,6 +58,37 @@ export function radiusForCount(total: number, base = BASE_RADIUS): number {
   return base + (total - 6) * 42;
 }
 
+/** 纵向滚筒槽位（窄屏）：绕 X 轴环绕，靠上下滑动切换 */
+export type VerticalCylinderSlot = {
+  angle: number;
+  x: number;
+  radius: number;
+  rotate: number;
+  scale: number;
+};
+
+export function verticalCylinderSlot(
+  seed: number,
+  index: number,
+  total: number,
+  radius: number,
+): VerticalCylinderSlot {
+  const step = 360 / Math.max(total, 1);
+  const rnd = mulberry32(hashSeed(`vcy:${seed}:${index}`));
+  return {
+    angle: r3(index * step),
+    x: r3((rnd() - 0.5) * 56),
+    radius: r3(radius + (rnd() - 0.5) * 40),
+    rotate: r3((rnd() - 0.5) * 8),
+    scale: r3(0.9 + rnd() * 0.2),
+  };
+}
+
+/** 纵向滚筒半径基准：卡片越多越大，避免相邻卡片互相重叠 */
+export function verticalRadiusForCount(total: number, base = 300): number {
+  return Math.max(base, total * 20);
+}
+
 export type FlatSlot = { x: number; y: number; rotate: number; scale: number };
 
 export function gridScatter(seed: number, index: number, total: number): FlatSlot {

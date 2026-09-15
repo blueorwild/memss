@@ -122,7 +122,7 @@ export default function StarfieldPage({
       <StarBackground />
 
       <div className="relative z-10 flex h-full flex-col motion-safe:animate-[sceneIn_0.6s_ease-out_both]">
-        <header className="flex shrink-0 items-start justify-between gap-4 px-6 py-5">
+        <header className="flex shrink-0 items-start justify-between gap-4 px-4 py-3 pt-[calc(var(--safe-top)+12px)] sm:px-6 sm:py-5 sm:pt-5">
           <div className="flex flex-col gap-2">
             <Breadcrumb items={breadcrumb.map((c) => ({ id: c.id, name: c.name }))} />
             {path.length > 1 && (

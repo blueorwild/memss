@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
+import { useElementSize } from "@/lib/use-element-size";
 import type { CategoryWithCount } from "@/lib/db/queries";
 
 function scatterPos(index: number, total: number, id: string) {
@@ -37,11 +38,13 @@ export default function CategoryStars({
   zoomedId: string | null;
   mode: "arc" | "scatter";
 }) {
+  const [containerRef, size] = useElementSize<HTMLDivElement>();
   const n = items.length;
-  const spread = Math.min(760, 200 * n);
+  // 弧线跨度按容器宽度收敛（窄屏不再把星星推到屏幕外）；测到宽度前保持旧值
+  const spread = size.w > 0 ? Math.min(size.w * 0.9, 200 * n) : Math.min(760, 200 * n);
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={containerRef} className="relative h-full w-full">
       {items.map((c, i) => {
         const hasMemories = c.memoryCount > 0;
         const isZoomed = zoomedId === c.id;
