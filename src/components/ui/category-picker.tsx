@@ -85,7 +85,7 @@ export default function CategoryPicker({
       <button
         type="button"
         onClick={() => onChange(root.id)}
-        className={`rounded-full px-3 py-1 text-xs transition-colors ${
+        className={`min-h-9 rounded-full px-3.5 py-2 text-xs transition-colors sm:min-h-0 sm:py-1 ${
           value === root.id ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/10"
         }`}
       >

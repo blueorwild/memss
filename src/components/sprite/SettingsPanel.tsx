@@ -17,9 +17,9 @@ type PublicAgentConfig = {
   providers: Record<ProviderId, PublicProviderConfig>;
 };
 
-/** 输入框通用样式 */
+/** 输入框通用样式（移动端 16px 字号，避免 iOS 聚焦时自动放大） */
 const inputCls =
-  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/30";
+  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-base text-white outline-none placeholder:text-white/35 focus:border-white/30 sm:text-sm";
 
 const labelCls = "block text-[11px] text-white/45";
 
@@ -151,7 +151,7 @@ export default function SettingsPanel() {
               type="button"
               disabled={!config}
               onClick={() => config && selectProvider(p.id, config)}
-              className={`rounded-full px-3 py-1 text-xs transition-colors disabled:opacity-40 ${
+              className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition-colors disabled:opacity-40 sm:min-h-0 sm:py-1 ${
                 active === p.id
                   ? "bg-white/15 text-white"
                   : "text-white/60 hover:bg-white/10 hover:text-white"
@@ -189,7 +189,7 @@ export default function SettingsPanel() {
                   setClearKey((v) => !v);
                   setApiKey("");
                 }}
-                className={`shrink-0 rounded-lg border px-3 text-xs transition-colors ${
+                className={`shrink-0 rounded-lg border px-3.5 py-2 text-xs transition-colors ${
                   clearKey
                     ? "border-red-400/50 text-red-300"
                     : "border-white/15 text-white/60 hover:text-white"
@@ -208,7 +208,7 @@ export default function SettingsPanel() {
               type="button"
               onClick={() => void loadModels(active, model)}
               disabled={loadingModels}
-              className="text-[11px] text-white/50 transition-colors hover:text-white disabled:opacity-40"
+              className="px-1 py-1 text-[11px] text-white/50 transition-colors hover:text-white disabled:opacity-40"
             >
               {loadingModels ? "加载中…" : "刷新"}
             </button>
@@ -230,7 +230,7 @@ export default function SettingsPanel() {
           type="button"
           onClick={() => void save()}
           disabled={busy}
-          className="w-full rounded-full bg-indigo-500/80 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+          className="w-full rounded-full bg-indigo-500/80 py-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
         >
           {busy ? "保存中…" : "保存并启用"}
         </button>

@@ -23,7 +23,7 @@ export default function ActionBar() {
           key={it.key}
           type="button"
           onClick={() => (it.key === "upload" ? openUpload() : openView(it.key))}
-          className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+          className={`flex min-h-9 flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs transition-colors sm:min-h-0 sm:flex-none sm:py-1 ${
             view === it.key
               ? "bg-white/15 text-white"
               : "text-white/60 hover:bg-white/10 hover:text-white"

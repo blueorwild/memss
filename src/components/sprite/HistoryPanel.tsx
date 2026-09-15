@@ -98,7 +98,7 @@ export default function HistoryPanel({
               type="checkbox"
               checked={selected.has(c.id)}
               onChange={() => toggle(c.id)}
-              className="size-3.5 shrink-0 accent-indigo-400"
+              className="size-5 shrink-0 accent-indigo-400 sm:size-3.5"
             />
             <button
               type="button"
@@ -124,7 +124,7 @@ export default function HistoryPanel({
           type="button"
           onClick={toggleAll}
           disabled={conversations.length === 0}
-          className="rounded-full border border-white/15 px-3 py-1.5 text-white/70 transition-colors hover:bg-white/10 disabled:opacity-40"
+          className="rounded-full border border-white/15 min-h-11 px-3 py-2.5 sm:min-h-0 text-white/70 transition-colors hover:bg-white/10 disabled:opacity-40"
         >
           {allSelected ? "取消全选" : "全选"}
         </button>
@@ -132,7 +132,7 @@ export default function HistoryPanel({
           type="button"
           onClick={() => void remove([...selected])}
           disabled={selected.size === 0 || busy}
-          className="rounded-full border border-white/15 px-3 py-1.5 text-white/70 transition-colors hover:bg-white/10 disabled:opacity-40"
+          className="rounded-full border border-white/15 min-h-11 px-3 py-2.5 sm:min-h-0 text-white/70 transition-colors hover:bg-white/10 disabled:opacity-40"
         >
           删除选中{selected.size > 0 ? `（${selected.size}）` : ""}
         </button>
@@ -140,7 +140,7 @@ export default function HistoryPanel({
           type="button"
           onClick={() => setConfirmClear(true)}
           disabled={conversations.length === 0 || busy}
-          className="ml-auto rounded-full border border-red-400/30 px-3 py-1.5 text-red-300/80 transition-colors hover:bg-red-500/15 disabled:opacity-40"
+          className="ml-auto rounded-full border border-red-400/30 min-h-11 px-3 py-2.5 sm:min-h-0 text-red-300/80 transition-colors hover:bg-red-500/15 disabled:opacity-40"
         >
           清空全部
         </button>

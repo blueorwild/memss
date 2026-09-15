@@ -9,11 +9,11 @@ type Country = { code: string; name: string };
 type Province = { name: string; cities: string[] };
 
 const inputCls =
-  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/30";
+  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-base text-white outline-none placeholder:text-white/35 focus:border-white/30 sm:text-sm";
 const btnCls =
-  "rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10";
+  "rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/80 transition-colors hover:bg-white/10";
 const primaryCls =
-  "rounded-full bg-indigo-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-500";
+  "rounded-full bg-indigo-500/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-indigo-500";
 
 /** 计算某类别深度（含自身） */
 function depthOf(id: string, byId: Map<string, Category>): number {
@@ -138,7 +138,7 @@ function NewCategoryForm({
           >
             <Command.Input
               placeholder="搜索…"
-              className="w-full rounded-t-lg border-b border-white/10 bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-white/35"
+              className="w-full rounded-t-lg border-b border-white/10 bg-transparent px-3 py-2 text-base text-white outline-none placeholder:text-white/35 sm:text-sm"
             />
             <Command.List className="max-h-44 overflow-y-auto p-1">
               <Command.Empty className="px-2 py-3 text-center text-xs text-white/40">
@@ -149,7 +149,7 @@ function NewCategoryForm({
                   key={c}
                   value={c}
                   onSelect={() => setName(c)}
-                  className="cursor-pointer rounded-md px-2.5 py-2 text-sm text-white/80 data-[selected=true]:bg-white/15 data-[selected=true]:text-white"
+                  className="cursor-pointer rounded-md px-2.5 py-2.5 text-sm text-white/80 data-[selected=true]:bg-white/15 data-[selected=true]:text-white"
                 >
                   {c}
                 </Command.Item>

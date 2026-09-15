@@ -42,7 +42,7 @@ export function Combobox({
           type="button"
           disabled={disabled}
           className={cn(
-            "flex w-full items-center justify-between gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-sm text-white outline-none transition-colors hover:border-white/25 focus:border-white/30 disabled:cursor-not-allowed disabled:opacity-40",
+            "flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-base text-white outline-none transition-colors hover:border-white/25 focus:border-white/30 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0 sm:text-sm",
             className,
           )}
         >
@@ -62,7 +62,7 @@ export function Combobox({
         >
           <Command.Input
             placeholder="搜索…"
-            className="w-full rounded-md border border-white/10 bg-white/5 px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/35"
+            className="w-full rounded-md border border-white/10 bg-white/5 px-2.5 py-2 text-base text-white outline-none placeholder:text-white/35 sm:text-sm"
           />
           <Command.List className="mt-1 max-h-56 overflow-y-auto">
             <Command.Empty className="px-2 py-3 text-center text-xs text-white/40">
@@ -76,7 +76,7 @@ export function Combobox({
                   onChange(o.value);
                   setOpen(false);
                 }}
-                className="cursor-pointer rounded-md px-2.5 py-2 text-sm text-white/80 data-[selected=true]:bg-white/15 data-[selected=true]:text-white"
+                className="cursor-pointer rounded-md px-2.5 py-2.5 text-sm text-white/80 data-[selected=true]:bg-white/15 data-[selected=true]:text-white"
               >
                 {o.label}
               </Command.Item>

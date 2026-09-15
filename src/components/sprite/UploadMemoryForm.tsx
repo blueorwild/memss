@@ -14,13 +14,13 @@ function currentCategoryFromPath(pathname: string): string | null {
   return parts[parts.length - 1] ?? null;
 }
 
-/** 输入框通用样式 */
+/** 输入框通用样式（移动端 16px 字号，避免 iOS 聚焦时自动放大） */
 const inputCls =
-  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/30";
+  "w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-base text-white outline-none placeholder:text-white/35 focus:border-white/30 sm:text-sm";
 
 /** 文件选择框通用样式 */
 const fileCls =
-  "block w-full text-xs text-white/60 file:mr-2 file:rounded-full file:border-0 file:bg-white/15 file:px-3 file:py-1.5 file:text-white";
+  "block w-full text-sm text-white/60 file:mr-2 file:rounded-full file:border-0 file:bg-white/15 file:px-3 file:py-2 file:text-white sm:text-xs sm:file:py-1.5";
 
 /**
  * 上传回忆表单：图片(多) / 音乐(单) / 标题 / 类别(级联=地点) / 时间 / 描述。
@@ -222,7 +222,7 @@ export default function UploadMemoryForm({ onDone }: { onDone?: () => void }) {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-full bg-indigo-500/80 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+          className="w-full rounded-full bg-indigo-500/80 py-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
         >
           {submitting ? "上传中…" : "保存回忆"}
         </button>

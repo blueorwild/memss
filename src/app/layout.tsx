@@ -24,6 +24,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: "#05060a",
+  // 软键盘弹出时收缩布局视口（Android），避免输入框被键盘遮住
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
