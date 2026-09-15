@@ -51,20 +51,35 @@ export function getMemoriesByCategory(categoryId: string): Memory[] {
     .all();
 }
 
+/** 上传时间 → YYYY-MM-DD（本地时区）：让没有 date 的回忆也能参与时间轴排序 */
+function dayOf(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export function listMemoryCards(categoryId: string): MemoryCard[] {
   const mems = getMemoriesByCategory(categoryId);
   if (mems.length === 0) return [];
+  // 由旧至新：优先 date，缺省用上传日期；时间相同再按上传先后稳定排序
+  const sorted = [...mems].sort((a, b) => {
+    const ka = a.date ?? dayOf(a.createdAt);
+    const kb = b.date ?? dayOf(b.createdAt);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
   const assets = db
     .select()
     .from(media)
-    .where(inArray(media.memoryId, mems.map((m) => m.id)))
+    .where(inArray(media.memoryId, sorted.map((m) => m.id)))
     .orderBy(asc(media.sortOrder))
     .all();
   const coverMap = new Map<string, string>();
   for (const a of assets) {
     if (a.type === "image" && !coverMap.has(a.memoryId)) coverMap.set(a.memoryId, a.path);
   }
-  return mems.map((m) => ({ ...m, cover: coverMap.get(m.id) ?? null }));
+  return sorted.map((m) => ({ ...m, cover: coverMap.get(m.id) ?? null }));
 }
 
 export function getSubtreeMemoryCounts(): Map<string, number> {

@@ -16,6 +16,8 @@ export const memories = sqliteTable("memories", {
   description: text("description"),
   location: text("location"),
   seed: integer("seed").notNull().default(0),
+  /** 上传时间（毫秒）：没有 date 时作为排序依据 */
+  createdAt: integer("created_at").notNull().default(0),
 });
 
 export const media = sqliteTable("media", {

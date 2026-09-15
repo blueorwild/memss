@@ -1,43 +1,36 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  cylinderSlot,
-  r3,
-  radiusForCount,
-  timelineScatter,
-  verticalCylinderSlot,
-  verticalRadiusForCount,
+  TRACK_GAP,
+  flowTilt,
+  tileJitter,
+  trackCapacity,
+  trackCrossPositions,
 } from "@/lib/layout-seed";
 import { useElementSize } from "@/lib/use-element-size";
-import { useIsMobile } from "@/lib/use-media-query";
+import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import type { MemoryCard } from "@/lib/db/queries";
 import TimelineRail, { VerticalTimelineRail } from "./TimelineRail";
 
-const FLAT_THRESHOLD = 5;
+/** 宽屏卡片尺寸 */
+const CARD_NORMAL = { w: 200, h: 140 };
+/** 窄屏 / 横屏紧凑卡片尺寸 */
+const CARD_COMPACT = { w: 150, h: 105 };
+/** 自动流动速度（px/s） */
+const FLOW_SPEED = 12;
+/** 卡片标题占用的纵向长度（含间距，px）：算轨道步长用，避免相邻卡片贴合 */
+const CARD_CAPTION = 26;
+/** 「大半径滚筒」半径系数：相对视口长边，越大越接近平面流动 */
+const RADIUS_FACTOR = 2.5;
 
-export default function MemoryCylinder({ memories }: { memories: MemoryCard[] }) {
-  const isMobile = useIsMobile();
-  if (memories.length === 0) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center text-sm text-white/35">
-        这个分类下还没有回忆
-      </div>
-    );
-  }
-  // 窄屏统一走纵向滚筒：横向滚筒在手机上半径远大于屏宽，卡片会大量出屏
-  if (isMobile) return <VerticalCylinder memories={memories} />;
-  return memories.length <= FLAT_THRESHOLD ? (
-    <FlatMemories memories={memories} />
-  ) : (
-    <CylinderMemories memories={memories} />
-  );
-}
+type CardSize = { w: number; h: number };
+type Size = { w: number; h: number };
 
-/** 回忆卡片外观：白色常驻微光 + hover 增强（平面 / 滚筒 / 纵向滚筒共用） */
+/** 回忆卡片外观：白色常驻微光 + hover 增强 */
 function MemoryCardFace({ memory, compact = false }: { memory: MemoryCard; compact?: boolean }) {
   return (
     <div
@@ -63,183 +56,107 @@ function MemoryCardFace({ memory, compact = false }: { memory: MemoryCard; compa
   );
 }
 
-function FlatMemories({ memories }: { memories: MemoryCard[] }) {
-  const router = useRouter();
-  const slots = useMemo(
-    () => memories.map((m, i) => ({ m, slot: timelineScatter(m.seed, i, memories.length) })),
-    [memories],
-  );
+/**
+ * 记忆展示总入口：宽屏=上下两行横向轨道，窄屏=左右两列纵向轨道。
+ * 两轨总容量内直接平铺；超出则转为「大半径滚筒」的流动形态。
+ */
+export default function MemoryCylinder({ memories }: { memories: MemoryCard[] }) {
+  const isMobile = useIsMobile();
+  const [ref, size] = useElementSize<HTMLDivElement>();
+
+  if (memories.length === 0) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center text-sm text-white/35">
+        这个分类下还没有回忆
+      </div>
+    );
+  }
+
+  // 窄屏竖屏 → 纵向轨道（左右两列）；宽屏/横屏 → 横向轨道（上下两行）
+  const vertical = isMobile;
+  // 矮容器（手机横屏）用紧凑卡片
+  const compact = isMobile || (size.h > 0 && size.h < 480);
+  const card = compact ? CARD_COMPACT : CARD_NORMAL;
+
+  const mainAvail = vertical ? size.h : size.w;
+  const cardMain = vertical ? card.h : card.w;
+  const capacity =
+    mainAvail > 0 ? trackCapacity(mainAvail - TRACK_GAP * 3, cardMain + CARD_CAPTION) : 3;
+  const threshold = capacity * 2;
 
   return (
-    <div className="absolute inset-0">
-      {slots.map(({ m, slot }) => (
-        <div
-          key={m.id}
-          className="absolute"
-          style={{
-            left: `${slot.x}%`,
-            top: `${slot.y}%`,
-            transform: `translate(-50%, -50%) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-          }}
-        >
-          <motion.div
-            animate={{ y: [0, -slot.floatAmp, 0, slot.floatAmp, 0] }}
-            transition={{
-              duration: 5 + (slot.floatPhase % 3),
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.08 }}
-              transition={{ type: "spring", stiffness: 320, damping: 26 }}
-              onClick={() => router.push(`/memory/${m.id}`)}
-              className="block cursor-pointer outline-none"
-            >
-              <MemoryCardFace memory={m} />
-              <p className="mt-2 w-[200px] truncate text-center text-xs text-white/70">
-                {m.title}
-              </p>
-            </motion.button>
-          </motion.div>
-        </div>
-      ))}
-      <TimelineRail memories={memories} />
+    <div ref={ref} className="absolute inset-0">
+      {size.w > 0 &&
+        (memories.length <= threshold ? (
+          <TileBoard memories={memories} card={card} vertical={vertical} size={size} />
+        ) : (
+          <FlowTracks memories={memories} card={card} vertical={vertical} size={size} />
+        ))}
     </div>
   );
 }
 
-function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
+/** 双轨平铺：每轨均匀铺开 + 大幅随机偏移 + 轻微旋转 + 缓缓浮动 */
+function TileBoard({
+  memories,
+  card,
+  vertical,
+  size,
+}: {
+  memories: MemoryCard[];
+  card: CardSize;
+  vertical: boolean;
+  size: Size;
+}) {
   const router = useRouter();
-  const [containerRef, size] = useElementSize<HTMLDivElement>();
-  const [rotation, setRotation] = useState(0);
 
-  const rotationRef = useRef(0);
-  const velocityRef = useRef(0);
-  const draggingRef = useRef(false);
-  const lastXRef = useRef(0);
-  const movedRef = useRef(false);
+  // 交替分配到两轨，并记录每张卡片在本轨内的序号
+  const placed: { m: MemoryCard; i: number; track: number; k: number; cnt: number }[] = [];
+  const counts = [0, 0];
+  for (let i = 0; i < memories.length; i++) counts[i % 2]++;
+  const seen = [0, 0];
+  memories.forEach((m, i) => {
+    const track = i % 2;
+    placed.push({ m, i, track, k: seen[track]++, cnt: Math.max(1, counts[track]) });
+  });
 
-  // 矮容器（手机横屏）→ 紧凑卡片并收敛半径，避免卡片超出上下边界
-  const compact = size.h > 0 && size.h < 480;
-  const radius = useMemo(() => {
-    const base = radiusForCount(memories.length);
-    if (!compact) return base;
-    return Math.max(200, Math.round(Math.min(base, size.h * 0.95)));
-  }, [memories.length, compact, size.h]);
-  const slots = useMemo(
-    () =>
-      memories.map((m, i) => ({
-        m,
-        slot: cylinderSlot(m.seed, i, memories.length, radius),
-      })),
-    [memories, radius],
-  );
-
-  const activeId = useMemo(() => {
-    if (slots.length === 0) return null;
-    let best = slots[0].m.id;
-    let bestF = -Infinity;
-    for (const { m, slot } of slots) {
-      const f = Math.cos(((slot.angle + rotation) * Math.PI) / 180);
-      if (f > bestF) {
-        bestF = f;
-        best = m.id;
-      }
-    }
-    return best;
-  }, [slots, rotation]);
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (!draggingRef.current) {
-        if (Math.abs(velocityRef.current) > 0.02) {
-          rotationRef.current += velocityRef.current;
-          velocityRef.current *= 0.94;
-        } else {
-          velocityRef.current = 0;
-          rotationRef.current -= 0.05;
-        }
-      }
-      setRotation(rotationRef.current);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  function onPointerDown(e: React.PointerEvent) {
-    draggingRef.current = true;
-    movedRef.current = false;
-    lastXRef.current = e.clientX;
-    velocityRef.current = 0;
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!draggingRef.current) return;
-    const dx = e.clientX - lastXRef.current;
-    lastXRef.current = e.clientX;
-    if (Math.abs(dx) > 2) {
-      movedRef.current = true;
-      containerRef.current?.setPointerCapture(e.pointerId);
-    }
-    rotationRef.current += dx * 0.3;
-    velocityRef.current = dx * 0.3;
-  }
-
-  function endDrag(e: React.PointerEvent) {
-    draggingRef.current = false;
-    if (containerRef.current?.hasPointerCapture(e.pointerId)) {
-      containerRef.current.releasePointerCapture(e.pointerId);
-    }
-  }
-
-  function openMemory(id: string) {
-    if (movedRef.current) return;
-    router.push(`/memory/${id}`);
-  }
+  const mainLen = vertical ? size.h : size.w;
+  const crossLen = vertical ? size.w : size.h;
+  const cardMain = vertical ? card.h : card.w;
+  const pad = TRACK_GAP * 1.5;
+  const avail = Math.max(1, mainLen - pad * 2);
+  const compact = card.w === CARD_COMPACT.w;
+  const trackCross = trackCrossPositions(crossLen, vertical ? card.w : card.h);
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 touch-none select-none"
-      style={{ perspective: "1200px", cursor: "grab" }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerLeave={endDrag}
-    >
-      <div
-        className="absolute left-1/2 top-1/2"
-        style={{
-          transformStyle: "preserve-3d",
-          transform: `translateZ(-${radius}px) rotateY(${r3(rotation)}deg)`,
-        }}
-      >
-        {slots.map(({ m, slot }) => {
-          const facing = Math.cos(((slot.angle + rotation) * Math.PI) / 180);
-          // 背面卡片不渲染（约省一半节点）；接近阈值时先淡出，避免闪现
-          if (facing < -0.5) return null;
-          const intensity = (facing + 1) / 2;
-          const front = facing > 0.25;
-          const fade = facing < 0 ? Math.max(0, (facing + 0.5) / 0.5) : 1;
-          return (
-            <div
-              key={m.id}
-              className="absolute left-0 top-0"
-              style={{
-                transform: `translate(-50%, -50%) rotateY(${slot.angle}deg) translateZ(${slot.radius}px) translateY(${r3(compact ? slot.y * 0.45 : slot.y)}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: r3((0.2 + 0.8 * intensity) * fade),
-                filter: `brightness(${r3(0.61 + 0.39 * intensity)})`,
-                pointerEvents: front ? "auto" : "none",
-                zIndex: Math.round(intensity * 1000),
-              }}
-            >
+    <>
+      {placed.map(({ m, i, track, k, cnt }) => {
+        const j = tileJitter(m.seed, i);
+        // 「大幅随机偏移」以卡片自身尺寸为基准（不是整条轨道），避免单张卡片被推得很偏
+        const alongRaw =
+          pad + ((k + 0.5) / cnt) * avail + j.along * (cardMain + TRACK_GAP) * 2.4;
+        const along = Math.min(mainLen - pad * 0.4, Math.max(pad * 0.4, alongRaw));
+        const cross = trackCross[track] + j.cross * crossLen;
+        return (
+          <motion.div
+            key={m.id}
+            className="absolute"
+            style={{
+              left: vertical ? cross : along,
+              top: vertical ? along : cross,
+              translateX: "-50%",
+              translateY: "-50%",
+            }}
+            animate={{
+              x: [0, j.floatAmp * 0.7, 0, -j.floatAmp * 0.7, 0],
+              y: [0, -j.floatAmp, 0, j.floatAmp, 0],
+            }}
+            transition={{ duration: j.floatDur, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <div style={{ transform: `rotate(${j.rotate}deg) scale(${j.scale})` }}>
               <button
                 type="button"
-                onClick={() => openMemory(m.id)}
+                onClick={() => router.push(`/memory/${m.id}`)}
                 className="block cursor-pointer outline-none"
               >
                 <MemoryCardFace memory={m} compact={compact} />
@@ -252,107 +169,107 @@ function CylinderMemories({ memories }: { memories: MemoryCard[] }) {
                 </p>
               </button>
             </div>
-          );
-        })}
-      </div>
+          </motion.div>
+        );
+      })}
 
-      <TimelineRail memories={memories} activeId={activeId} showCursor />
-    </div>
+      {vertical ? (
+        <VerticalTimelineRail memories={memories} />
+      ) : (
+        <TimelineRail memories={memories} />
+      )}
+    </>
   );
 }
 
-/**
- * 纵向滚筒（窄屏）：卡片绕 X 轴排在竖直圆柱上，上下拖拽切换。
- * 背面卡片不渲染（手机降载），半径按容器高度收敛避免转到屏外。
- */
-function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
+/** 双轨流动：大半径滚筒（近似平面），只渲染可见卡片，两端渐隐 */
+function FlowTracks({
+  memories,
+  card,
+  vertical,
+  size,
+}: {
+  memories: MemoryCard[];
+  card: CardSize;
+  vertical: boolean;
+  size: Size;
+}) {
   const router = useRouter();
-  const [containerRef, size] = useElementSize<HTMLDivElement>();
-  const [rotation, setRotation] = useState(0);
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const rotationRef = useRef(0);
+  const mainLen = vertical ? size.h : size.w;
+  const crossLen = vertical ? size.w : size.h;
+  const cardMain = vertical ? card.h : card.w;
+  const step = cardMain + CARD_CAPTION + TRACK_GAP;
+  // 半径设得远大于屏幕：滚筒退化为接近平面的流动，只在两端留下很轻的弧度
+  const radius = Math.max(mainLen * RADIUS_FACTOR, 1200);
+  const compact = card.w === CARD_COMPACT.w;
+  const trackCross = trackCrossPositions(crossLen, vertical ? card.w : card.h);
+
+  const offsetRef = useRef(0);
   const velocityRef = useRef(0);
   const draggingRef = useRef(false);
-  const lastYRef = useRef(0);
+  const lastPosRef = useRef(0);
   const movedRef = useRef(false);
-  // 自动旋转的帧计数（每 2 帧推进一次 ≈ 1.5°/秒）
-  const frameRef = useRef(0);
+  const [offset, setOffset] = useState(0);
+  const [ready, setReady] = useState(false);
 
-  // 半径同时受「卡片数」与「容器高度」约束：卡片多要更大，但不能超出屏幕
-  const radius = useMemo(() => {
-    const byCount = verticalRadiusForCount(memories.length);
-    const byHeight = (size.h || 420) * 0.42;
-    return Math.round(Math.max(180, Math.min(byCount, byHeight)));
-  }, [memories.length, size.h]);
-
-  const slots = useMemo(
-    () =>
-      memories.map((m, i) => ({
-        m,
-        slot: verticalCylinderSlot(m.seed, i, memories.length, radius),
-      })),
-    [memories, radius],
-  );
-
-  /** 当前正对观察者的卡片（纵向星轨光标跟随它） */
-  const activeId = useMemo(() => {
-    if (slots.length === 0) return null;
-    let best = slots[0].m.id;
-    let bestF = -Infinity;
-    for (const { m, slot } of slots) {
-      const f = Math.cos(((slot.angle + rotation) * Math.PI) / 180);
-      if (f > bestF) {
-        bestF = f;
-        best = m.id;
-      }
-    }
-    return best;
-  }, [slots, rotation]);
-
-  // 惯性滑行 + 静止后自动缓缓上滚（每 2 帧推进一次，约 1.5°/秒）
+  // 每次进入随机初始位置（客户端生成），随后淡入，避免看到跳变
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      offsetRef.current = Math.random() * step * 8;
+      setOffset(offsetRef.current);
+      setReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [step]);
+
+  // 自动流动：offset 递减（横向向左 / 纵向向上），时间由旧至新
+  useEffect(() => {
+    if (reduceMotion || !ready) return;
     let raf = 0;
-    const tick = () => {
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
       if (!draggingRef.current) {
-        if (Math.abs(velocityRef.current) > 0.02) {
-          rotationRef.current += velocityRef.current;
+        if (Math.abs(velocityRef.current) > 1) {
+          // 松手后的惯性：与拖动同向
+          offsetRef.current += velocityRef.current * dt;
           velocityRef.current *= 0.94;
-          setRotation(rotationRef.current);
         } else {
           velocityRef.current = 0;
-          frameRef.current += 1;
-          if (frameRef.current % 2 === 0) {
-            // rotation 增大 => 卡片向上移动 => 更新的内容从下方进入
-            rotationRef.current += 0.05;
-            setRotation(rotationRef.current);
-          }
+          offsetRef.current -= FLOW_SPEED * dt;
         }
+        setOffset(offsetRef.current);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [reduceMotion, ready]);
 
+  /** 拖动：沿轨道方向跟手移动 */
   function onPointerDown(e: React.PointerEvent) {
     draggingRef.current = true;
     movedRef.current = false;
-    lastYRef.current = e.clientY;
+    lastPosRef.current = vertical ? e.clientY : e.clientX;
     velocityRef.current = 0;
   }
 
   function onPointerMove(e: React.PointerEvent) {
     if (!draggingRef.current) return;
-    const dy = e.clientY - lastYRef.current;
-    lastYRef.current = e.clientY;
-    if (Math.abs(dy) > 2) {
+    const p = vertical ? e.clientY : e.clientX;
+    const d = p - lastPosRef.current;
+    lastPosRef.current = p;
+    if (Math.abs(d) > 2) {
       movedRef.current = true;
       containerRef.current?.setPointerCapture(e.pointerId);
     }
-    // 手指下拉时内容跟随下移（rotation 减小）
-    rotationRef.current -= dy * 0.28;
-    velocityRef.current = -dy * 0.28;
-    setRotation(rotationRef.current);
+    offsetRef.current += d;
+    velocityRef.current = d * 60;
+    setOffset(offsetRef.current);
   }
 
   function endDrag(e: React.PointerEvent) {
@@ -367,59 +284,91 @@ function VerticalCylinder({ memories }: { memories: MemoryCard[] }) {
     router.push(`/memory/${id}`);
   }
 
+  // 计算可见卡片（含一张卡缓冲，滑动时不闪）
+  const counts = [0, 0];
+  for (let i = 0; i < memories.length; i++) counts[i % 2]++;
+  const seen = [0, 0];
+  const nodes: { m: MemoryCard; main: number; cross: number; rot: number }[] = [];
+  memories.forEach((m, i) => {
+    const track = i % 2;
+    const k = seen[track]++;
+    const cnt = Math.max(1, counts[track]);
+    const span = cnt * step;
+    const tilt = flowTilt(m.seed, i, track);
+    // 均匀分布 + 整体随机偏移（offset）+ 沿轨道小幅扰动：既随机又不重叠
+    const raw = k * step + offset + tilt.jitter * TRACK_GAP * 0.6;
+    const wrapped = ((raw % span) + span) % span;
+    const main = wrapped - span / 2 + mainLen / 2;
+    if (main < -cardMain - CARD_CAPTION || main > mainLen + CARD_CAPTION) return;
+    const cross = trackCross[track] + tilt.lag * crossLen;
+    // 大半径带来的轻微弧度
+    const arc = ((main - mainLen / 2) / radius) * 57.2958;
+    nodes.push({ m, main, cross, rot: tilt.rotate + (vertical ? -arc : arc) });
+  });
+
+  // 当前最接近屏幕中心的卡片：供星轨光标使用
+  let activeId: string | null = null;
+  let bestD = Infinity;
+  for (const n of nodes) {
+    const d = Math.abs(n.main - mainLen / 2);
+    if (d < bestD) {
+      bestD = d;
+      activeId = n.m.id;
+    }
+  }
+
+  // 两端渐隐（用 mask，GPU 合成，比逐卡片 opacity 更平滑）
+  const mask = vertical
+    ? "linear-gradient(to bottom, transparent 0%, #000 16%, #000 84%, transparent 100%)"
+    : "linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%)";
+
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 touch-none select-none"
-      style={{ perspective: "1000px", cursor: "grab" }}
+      className="absolute inset-0 touch-none select-none transition-opacity duration-500"
+      style={{ opacity: ready ? 1 : 0, cursor: "grab" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
       <div
-        className="absolute left-1/2 top-1/2"
-        style={{
-          transformStyle: "preserve-3d",
-          transform: `translateZ(-${radius}px) rotateX(${r3(rotation)}deg)`,
-        }}
+        className="absolute inset-0"
+        style={{ maskImage: mask, WebkitMaskImage: mask }}
       >
-        {slots.map(({ m, slot }) => {
-          const facing = Math.cos(((slot.angle + rotation) * Math.PI) / 180);
-          // 背面卡片不渲染：手机上通常能省掉一半以上的节点
-          if (facing < -0.5) return null;
-          const intensity = (facing + 1) / 2;
-          const front = facing > 0.25;
-          // 接近剔除阈值时先淡出，避免卡片「闪现」
-          const fade = facing < 0 ? Math.max(0, (facing + 0.5) / 0.5) : 1;
-          return (
-            <div
-              key={m.id}
-              className="absolute left-0 top-0"
-              style={{
-                transform: `translate(-50%, -50%) rotateX(${slot.angle}deg) translateZ(${slot.radius}px) translateX(${slot.x}px) rotate(${slot.rotate}deg) scale(${slot.scale})`,
-                opacity: r3((0.2 + 0.8 * intensity) * fade),
-                filter: `brightness(${r3(0.61 + 0.39 * intensity)})`,
-                pointerEvents: front ? "auto" : "none",
-                zIndex: Math.round(intensity * 1000),
-              }}
+        {nodes.map(({ m, main, cross, rot }) => (
+          <div
+            key={m.id}
+            className="absolute"
+            style={{
+              left: vertical ? cross : main,
+              top: vertical ? main : cross,
+              transform: `translate(-50%, -50%) rotate(${rot}deg)`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => openMemory(m.id)}
+              className="block cursor-pointer outline-none"
             >
-              <button
-                type="button"
-                onClick={() => openMemory(m.id)}
-                className="block cursor-pointer outline-none"
+              <MemoryCardFace memory={m} compact={compact} />
+              <p
+                className={`mt-2 truncate text-center text-xs text-white/70 ${
+                  compact ? "w-[150px]" : "w-[200px]"
+                }`}
               >
-                <MemoryCardFace memory={m} compact />
-                <p className="mt-2 w-[150px] truncate text-center text-xs text-white/70">
-                  {m.title}
-                </p>
-              </button>
-            </div>
-          );
-        })}
+                {m.title}
+              </p>
+            </button>
+          </div>
+        ))}
       </div>
 
-      <VerticalTimelineRail memories={memories} activeId={activeId} showCursor />
+      {vertical ? (
+        <VerticalTimelineRail memories={memories} activeId={activeId} showCursor />
+      ) : (
+        <TimelineRail memories={memories} activeId={activeId} showCursor />
+      )}
     </div>
   );
 }

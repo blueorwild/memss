@@ -91,46 +91,58 @@ export function verticalRadiusForCount(total: number, base = 300): number {
 
 export type FlatSlot = { x: number; y: number; rotate: number; scale: number };
 
-export function gridScatter(seed: number, index: number, total: number): FlatSlot {
-  const cols = total <= 2 ? Math.max(total, 1) : total <= 6 ? Math.ceil(total / 2) : Math.ceil(Math.sqrt(total * 1.4));
-  const rows = Math.ceil(total / Math.max(cols, 1));
-  const col = index % cols;
-  const row = Math.floor(index / cols);
-  const cellW = 100 / cols;
-  const cellH = 100 / Math.max(rows, 1);
-  const rnd = mulberry32(hashSeed(`flat:${seed}:${index}`));
-  const jx = (rnd() - 0.5) * cellW * 0.35;
-  const jy = (rnd() - 0.5) * cellH * 0.4;
-  const x = cellW * (col + 0.5) + jx;
-  const y = cellH * (row + 0.5) + jy;
+/* ---------------------------------------------------------------------------
+ * 双轨记忆展示（宽屏=上下两行横向轨道；窄屏=左右两列纵向轨道）
+ * 少于/等于两轨容量时平铺；超过时转为「大半径滚筒」的流动形态。
+ * ------------------------------------------------------------------------- */
+
+/** 卡片间距（px） */
+export const TRACK_GAP = 24;
+
+/** 两条轨道在交叉方向上的中心位置（px）：保证两轨卡片不重叠 */
+export function trackCrossPositions(
+  crossLen: number,
+  cardCross: number,
+): [number, number] {
+  const half = Math.max((cardCross + TRACK_GAP) / 2, crossLen * 0.18);
+  return [crossLen / 2 - half, crossLen / 2 + half];
+}
+
+/** 沿轨道方向可容纳的卡片数：用于平铺排布与「平铺/流动」判定 */
+export function trackCapacity(availLength: number, cardSize: number): number {
+  return Math.max(1, Math.floor((availLength + TRACK_GAP) / (cardSize + TRACK_GAP)));
+}
+
+/** 平铺模式：单张卡片的随机扰动（seed 驱动，保证 SSR 与客户端一致） */
+export type TileJitter = {
+  along: number;
+  cross: number;
+  rotate: number;
+  scale: number;
+  floatAmp: number;
+  floatDur: number;
+};
+
+export function tileJitter(seed: number, index: number): TileJitter {
+  const rnd = mulberry32(hashSeed(`tile:${seed}:${index}`));
   return {
-    x: Math.min(92, Math.max(8, x)),
-    y: Math.min(88, Math.max(12, y)),
-    rotate: (rnd() - 0.5) * 10,
-    scale: 0.92 + rnd() * 0.16,
+    along: r3((rnd() - 0.5) * 0.5), // 沿轨道方向 ±25% 格宽（大幅随机偏移）
+    cross: r3((rnd() - 0.5) * 0.05), // 交叉方向 ±2.5%（轻微扰动）
+    rotate: r3((rnd() - 0.5) * 7), // ±3.5° 轻微随机旋转
+    scale: r3(0.92 + rnd() * 0.16),
+    floatAmp: r3(3 + rnd() * 5), // 缓缓浮动的幅度（px）
+    floatDur: r3(5 + rnd() * 3), // 缓缓浮动的周期（秒）
   };
 }
 
-export type TimelineSlot = {
-  x: number;
-  y: number;
-  rotate: number;
-  scale: number;
-  floatPhase: number;
-  floatAmp: number;
-};
+/** 流动模式：卡片自身轻微旋转、沿轨道小幅扰动、交叉方向微扰 */
+export type FlowTilt = { rotate: number; jitter: number; lag: number };
 
-export function timelineScatter(seed: number, index: number, total: number): TimelineSlot {
-  const rnd = mulberry32(hashSeed(`tl:${seed}:${index}`));
-  const t = total <= 1 ? 0.5 : index / (total - 1);
-  const x = 12 + t * 76;
-  const y = 40 + (rnd() - 0.5) * 34;
+export function flowTilt(seed: number, index: number, track: number): FlowTilt {
+  const rnd = mulberry32(hashSeed(`flow:${seed}:${index}:${track}`));
   return {
-    x,
-    y,
-    rotate: (rnd() - 0.5) * 10,
-    scale: 0.9 + rnd() * 0.16,
-    floatPhase: rnd() * Math.PI * 2,
-    floatAmp: 4 + rnd() * 4,
+    rotate: r3((rnd() - 0.5) * 5), // ±2.5°
+    jitter: r3((rnd() - 0.5) * 0.5), // 沿轨道小幅扰动（× 间距，保持不重叠）
+    lag: r3((rnd() - 0.5) * 0.03),
   };
 }

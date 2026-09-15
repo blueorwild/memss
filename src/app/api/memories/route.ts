@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
       description: description || null,
       location: location || null,
       seed,
+      createdAt: Date.now(),
     })
     .run();
 
