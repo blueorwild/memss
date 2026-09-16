@@ -20,6 +20,14 @@ import type { Message } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
 
+/**
+ * 「小精灵已经问过用户是否同意」的会话标记（纯内存，单进程本地应用足够）。
+ * 危险操作（遗忘 / 迁移）的语义判断交给模型，但要求「先问过」这个上下文：
+ * 上一轮工具真的返回过 needConfirm 才置位，且只对紧接着的下一轮有效（用完即清），
+ * 因此首句祈使句（「把它删了吧」）无法一步通过，模型必须先复述并问一次。
+ */
+const consentAsked = new Set<string>();
+
 /** 检索卡片中的记忆条目 */
 /** 检索卡片条目（showMemories 下发，含封面与地点供卡片渲染） */
 type CardItem = {
@@ -44,8 +52,10 @@ const SYSTEM_PROMPT = [
   "showMemories 的 total 传符合条件的结果总数，用于「共 N 条」提示；正文不要复述卡片里的逐条内容。",
   "示例：✅「日本有 11 条回忆，从 2022 年秋天的涩谷霓虹到 2024 年的银座圣诞灯，四季都有，集中在东京，也有京都的。」❌「1. 银座的圣诞灯（2024-12-24）2. 夏日祭的烟火（2024-08-15）…」",
   "用户想修改/编辑某条回忆（标题、描述、类别、日期、图片、音乐）时，调用 openEditMemory 打开编辑面板，由用户在面板里完成修改；可按标题或 id 指定。",
-  "把某条回忆迁移到别的类别（改归属地点）用 moveMemory：它不删除内容但会改变归属，务必先复述「哪条回忆 → 迁到哪个类别」并取得用户明确同意，再以 confirm=true 调用。",
-  "删除回忆或类别（遗忘）前，必须先向用户复述要删除的对象并取得明确同意；若类别下有回忆，先让用户在「迁移到上一级」与「一并遗忘」中选择。得到同意后才调用对应工具并传 confirm=true。",
+  "把某条回忆迁移到别的类别（改归属地点）用 moveMemory：它不删除内容但会改变归属，务必先复述「哪条回忆 → 迁到哪个类别」并问一次是否同意，再以 confirm=true 调用。",
+  "删除回忆或类别（遗忘）前，必须先向用户复述要删除的对象并问一次是否同意；若类别下有回忆，先让用户在「迁移到上一级」与「一并遗忘」中选择。得到同意后才调用对应工具并传 confirm=true。",
+  "⚠️ 首次收到删除/迁移的请求时，无论对方语气多确定（「删了吧」「直接删掉」「遗忘掉这条」都算），都**不要在同一次回复里执行**：先复述对象并问一句「确定吗」；只有在你已经问过、对方给出肯定回复之后，才传 confirm=true。没问过就传 confirm=true 会被拒绝。",
+  "「用户同意」由你自己判断，不要要求对方说出「确认」二字：肯定的回复都算同意（是的 / 好的 / 可以的 / 嗯 / 行 / 对 / OK / 删吧 / 去吧 等），同一轮里用户明确表达过同意也算。只有含糊、反问、顾左右而言他，或表达了否定（不要 / 别删 / 算了 / 先等等）时，才需要你复述一遍并再问一次；用户已经同意过就不要重复追问。",
 ].join("");
 
 /** 从任意错误对象中提取可读文案 */
@@ -154,9 +164,6 @@ export async function POST(req: NextRequest) {
   // 历史消息（不含本轮输入）
   const history = listMessages(conversationId);
 
-  // 判断最后一条用户消息是否表达明确同意（用于删除类操作的二次确认校验）
-  const userConfirmed = /(确认|确定|同意|删吧|删除|可以删|没问题|就这么|好的|行)/.test(text);
-
   // 落库本轮用户消息；若上一条正是同内容且其后没有助手回复（失败/中止后的重试），则跳过重复插入
   const lastRow = history[history.length - 1];
   const isRetry = lastRow?.role === "user" && lastRow.content === text;
@@ -199,9 +206,16 @@ export async function POST(req: NextRequest) {
           model,
           system: `${SYSTEM_PROMPT}\n\n${buildContext(categoryId)}`,
           messages: toModelMessages(history, text),
-          tools: createAgentTools({ currentCategoryId: categoryId, userConfirmed }),
+          tools: createAgentTools({
+            currentCategoryId: categoryId,
+            consentAsked: consentAsked.has(conversationId),
+          }),
           stopWhen: isStepCount(8),
         });
+
+        // 本轮是否问了（needConfirm）与是否真的执行了危险操作
+        let askedThisTurn = false;
+        let executedThisTurn = false;
 
         for await (const part of result.fullStream) {
           if (part.type === "start-step") {
@@ -224,9 +238,15 @@ export async function POST(req: NextRequest) {
                 clientAction?: ClientAction;
                 items?: CardItem[];
                 total?: number;
+                needConfirm?: boolean;
               };
             }).output;
-            if (output?.clientAction) send({ type: "action", action: output.clientAction });
+            if (output?.needConfirm) askedThisTurn = true;
+            if (output?.clientAction) {
+              const t = output.clientAction.type;
+              if (t === "forgotten" || t === "moved") executedThisTurn = true;
+              send({ type: "action", action: output.clientAction });
+            }
             // 仅 showMemories 的结果作为卡片下发（含前端需要的条数与总数）
             if (part.toolName === "showMemories" && Array.isArray(output?.items)) {
               const items = output.items;
@@ -258,6 +278,11 @@ export async function POST(req: NextRequest) {
             }
           }
         }
+        // 结算「先问过」标记：执行了则消费掉；本轮刚问过则置位给下一轮；否则清掉（一次性）
+        if (executedThisTurn) consentAsked.delete(conversationId);
+        else if (askedThisTurn) consentAsked.add(conversationId);
+        else consentAsked.delete(conversationId);
+
         addMessages(conversationId, stored);
         touchConversation(conversationId);
 

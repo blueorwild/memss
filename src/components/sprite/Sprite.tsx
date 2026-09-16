@@ -147,8 +147,8 @@ export default function Sprite() {
     setTrail((t) => [...t.slice(-50), { id: tid, x: cx, y: cy }]);
     window.setTimeout(() => setTrail((t) => t.filter((p) => p.id !== tid)), TRAIL_LIFE * 1000 + REMOVE_OFFSET);
 
-    // 星尘粒子：沿拖拽路径随机方向飞溅、飘散消失（窄屏减半）
-    const count = isMobile ? 1 : 2 + Math.floor(Math.random() * 2);
+    // 星尘粒子：沿拖拽路径随机方向飞溅、飘散消失（宽窄屏统一 1 颗）
+    const count = 1;
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const dist = 24 + Math.random() * 100;
@@ -164,7 +164,7 @@ export default function Sprite() {
       setDust((arr) => [...arr.slice(-50), particle]);
       window.setTimeout(() => setDust((arr) => arr.filter((p) => p.id !== id)), DUST_LIFE * 1000 + REMOVE_OFFSET);
     }
-  }, [reduceMotion, isMobile]);
+  }, [reduceMotion]);
 
   // 结束拖拽：记录本次是否拖动（供 click 判断），并保存位置
   const onPointerUp = useCallback(() => {
@@ -234,8 +234,8 @@ export default function Sprite() {
     window.addEventListener("pointerup", onPanelPointerUp, { once: true });
   }
 
-  // 拖拽时粒子数量翻倍；窄屏减半；reduced-motion 关闭常驻粒子
-  const baseParticles = isMobile ? PARTICLES.slice(0, 10) : PARTICLES;
+  // 拖拽时粒子数量翻倍；宽窄屏统一限 10 颗；reduced-motion 关闭常驻粒子
+  const baseParticles = PARTICLES.slice(0, 10);
   const particles = reduceMotion
     ? []
     : dragging

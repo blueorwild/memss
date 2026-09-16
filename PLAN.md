@@ -347,8 +347,20 @@ ai_try/
 - 附带修复：上传/编辑表单的日期输入补 `[color-scheme:dark]`，日历图标与搜索框一致显示为白色（原先在暗色下几乎不可见）。
 
 ### E9 主题色 token 化 + 调色 ✅ 已完成
-- **token 唯一来源**：`src/app/globals.css` 的 `:root` 定义 `--sky-void/--sky-veil/--sky-panel`（底色三层）、`--sky-nebula-1/2/3`（星云）、`--sky-star/--sky-beam`（星点/光带）、`--accent/--accent-deep`（星光蓝与深一档）、`--warm/--warm-glow`（暖金）、`--ok`。**颜色一律写成空格分隔的 RGB 分量**，于是 CSS / 内联样式 / SVG 都能用 `rgb(var(--x) / <alpha>)` 叠透明度；配 `@theme inline` 映射出 `bg-void`、`bg-panel/95`、`bg-veil`、`text-accent`、`bg-accent-deep`、`text-warm`、`text-ok`、`border-accent` 等工具类。
-- **调色**：① 星云从「理论存在」（alpha 0.18/0.14，实测近乎不可见）**加强到可感知**——alpha 0.35/0.28 + 补第三团冷青（0.22），渐变终点用同色 0 透明度避免过渡发灰；底色 `#05060a` **不变**。② CTA（原 Tailwind `indigo-500`，共 11 处）统一为 `--accent-deep #2f7fd0`，与 `--accent #7cc4ff` 同族（`Sprite` 的球体/拖尾/星尘也改走 `--accent`）。③ 固化**双强调色语义**：冷蓝 = 交互/导航，暖金 = 时间/回忆（`TimelineRail` 的日期点与年份、光带走 `--sky-beam`）。
+- **token 唯一来源**：`src/app/globals.css` 的 `:root` 定义 `--sky-void/--sky-veil/--sky-panel`（底色三层）、`--sky-nebula-1/2`（星云两团）、`--sky-star/--sky-beam`（星点/光带）、`--accent/--accent-deep`（星光蓝与深一档）、`--warm/--warm-glow`（暖金）、`--ok`。**颜色一律写成空格分隔的 RGB 分量**，于是 CSS / 内联样式 / SVG 都能用 `rgb(var(--x) / <alpha>)` 叠透明度；配 `@theme inline` 映射出 `bg-void`、`bg-panel/95`、`bg-veil`、`text-accent`、`bg-accent-deep`、`text-warm`、`text-ok`、`border-accent` 等工具类。
+- **调色**：① 星云：原 alpha 0.18/0.14 实测近乎不可见 → 一度提到 0.35/0.28 又偏显眼 → **最终定为冷蓝 0.22 + 暖紫 0.17 两团**（第三团冷青已删，反正看不出来），渐变终点用同色 0 透明度避免过渡发灰；底色 `#05060a` **不变**。② CTA（原 Tailwind `indigo-500`，共 11 处）统一为 `--accent-deep #2f7fd0`，与 `--accent #7cc4ff` 同族（`Sprite` 的球体/拖尾/星尘也改走 `--accent`）。③ 固化**双强调色语义**：冷蓝 = 交互/导航，暖金 = 时间/回忆（`TimelineRail` 的日期点与年份、光带走 `--sky-beam`）。
 - **JS 侧**：新增 `src/lib/theme.ts` 的 `readTheme()` / `rgba()`（canvas 拿不到 CSS 类，仅 `StarBackground` 的星点用），带一份与 CSS 一致的兜底值；`layout.tsx` 的 `themeColor` 用导出的 `SKY_VOID_HEX`。
 - **dark-only**：删除 `prefers-color-scheme` 死代码，`--background` 直接指向 `--sky-void`。
-- 验证：token 计算值正确（`--accent` = `124 196 255` 等）；星云层 `background-image` 三团渐变到位；`bg-accent-deep/80` 的 CTA 计算结果换算回 sRGB 即 `#2f7fd0`；`TimelineRail` 的 SVG `style={{ stopColor: "rgb(var(--sky-beam) / …)" }}` 计算值 `rgba(150,180,255,…)`；详情页底色 `rgb(5,6,10)`；桌面 1440 与移动 375 各页无横向滚动/溢出、无控制台报错（详情页动画期间 `scrollWidth` 短暂 +3px 是 `memoryIn` 的 `scale(1.04)` 造成，动画结束后归零，改动前即如此）。
+- 验证：token 计算值正确（`--accent` = `124 196 255` 等）；星云层 `background-image`（当时三团）渐变到位（最终已改为两团，见 §16）；`bg-accent-deep/80` 的 CTA 计算结果换算回 sRGB 即 `#2f7fd0`；`TimelineRail` 的 SVG `style={{ stopColor: "rgb(var(--sky-beam) / …)" }}` 计算值 `rgba(150,180,255,…)`；详情页底色 `rgb(5,6,10)`；桌面 1440 与移动 375 各页无横向滚动/溢出、无控制台报错（详情页动画期间 `scrollWidth` 短暂 +3px 是 `memoryIn` 的 `scale(1.04)` 造成，动画结束后归零，改动前即如此）。
+
+## 16. 交付前微调（第二轮，已完成）
+
+1. **二次确认改为「语义由模型判断 + 服务端只校验先问过」**（`agent/route.ts` / `agent-tools.ts`）
+   - 删掉了原先的**关键词硬表**（`/(确认|确定|同意|删吧|…)/`）：它既不认「是的 / 可以 / 嗯」，又会被「不要删」误判；也**不做**确认按钮。
+   - 现在：危险操作（遗忘 / 迁移）的 `confirm` 由模型读懂用户回复后决定，服务端只加一条**上下文要求**——`consentAsked`（上一轮工具确实返回过 `needConfirm`，即小精灵真的问过一次）为真时才认 `confirm=true`；该标记**一次性**（执行即消费，本轮没问过就清掉）。
+   - 为什么必须留这一层：纯靠 prompt 时，首句祈使句「把它删了吧」会被模型当成同意**当场删除**（实测踩到，且旧词表也拦不住「遗忘」二字）。有了它，模型再笃定也必须先把对象复述出来问一次。
+   - prompt 同步强化：肯定回复（是的 / 好的 / 可以 / 嗯 / 行 / OK…）都算同意，不必要求对方说「确认」；但**首次收到请求一律先问一次**。
+   - 实测：①「把它遗忘掉吧」→ 不删、先问；② 回「是的」→ 删除成功（旧词表里没有「是的」）；③ 回「先别删，我再看一眼」→ 不删。
+2. **对话页直接可新建会话**：`ChatPanel` 顶部细条右侧加「＋ 新对话」（在「历史」左侧），`streaming` 中禁用；旧会话仍保留在历史里。
+3. **星云再调淡**：冷蓝 `0.35 → 0.22`、暖紫 `0.28 → 0.17`，并**删除第三团冷青**（连带清理 `--sky-nebula-3` token 与 `theme.ts` 兜底）。
+4. **宽屏与窄屏统一降载**：`StarBackground` 的 `MAX_DPR` 统一 **1.5**（原宽屏 2）、星数上限统一 **220**（原宽屏 420）；`Sprite` 常驻粒子统一 **10**（原宽屏 20）、拖尾星尘统一 **1 颗**（原宽屏 2–3）。窄屏原有表现不变，宽屏 canvas 像素减少约 44%（Retina 上星点略软，为可接受的取舍）。

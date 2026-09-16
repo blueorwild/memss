@@ -367,15 +367,26 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-1.5 text-[11px] text-white/40">
-        <span>使用中：{agentLabel ?? "…"}</span>
-        <button
-          type="button"
-          onClick={() => void openHistory()}
-          className="-my-1 -mr-2 px-2 py-1 transition-colors hover:text-white"
-        >
-          历史
-        </button>
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-1.5 text-[11px] text-white/40">
+        <span className="truncate">使用中：{agentLabel ?? "…"}</span>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={newConversation}
+            disabled={streaming}
+            title="新对话（当前会话仍保留在历史里）"
+            className="-my-1 px-1 py-1 transition-colors hover:text-white disabled:opacity-40 disabled:hover:text-white/40"
+          >
+            ＋ 新对话
+          </button>
+          <button
+            type="button"
+            onClick={() => void openHistory()}
+            className="-my-1 -mr-2 px-2 py-1 transition-colors hover:text-white"
+          >
+            历史
+          </button>
+        </div>
       </div>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {messages.map((m, i) => (

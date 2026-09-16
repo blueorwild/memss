@@ -6,8 +6,10 @@ import { useSpriteStore } from "@/store/sprite";
 
 type Star = { x: number; y: number; z: number; r: number; tw: number };
 
-/** 窄屏断点与统计口径（与 use-media-query 的 MOBILE_QUERY 对齐） */
-const MOBILE_QUERY = "(max-width: 639px)";
+/** 降载口径：宽窄屏统一（canvas 像素数是最大开销，宽屏也按 1.5 倍封顶） */
+const MAX_DPR = 1.5;
+/** 星数上限 */
+const STAR_CAP = 220;
 const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
 
 export default function StarBackground() {
@@ -19,12 +21,12 @@ export default function StarBackground() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // 降载：窄屏降低像素密度；reduced-motion 只画静态一帧
-    const narrow = window.matchMedia(MOBILE_QUERY).matches;
+    // 降载：宽窄屏统一（宽屏不再用更高像素密度与更多星点）；
+    // reduced-motion 时只画静态一帧
     const reduceMotion = window.matchMedia(REDUCE_QUERY).matches;
-    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.5 : 2);
-    // 星数上限：窄屏下调（手机面积本就小，主要为防大屏手机/平板过量）
-    const starCap = narrow ? 220 : 420;
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    // 星数上限（实际还受 w*h/DENSITY 约束，主要为防大屏过量）
+    const starCap = STAR_CAP;
     // 星点颜色取自主题 token（canvas 拿不到 CSS 类）
     const starColor = readTheme().star;
 
@@ -117,12 +119,11 @@ export default function StarBackground() {
       <div
         className="pointer-events-none fixed inset-0 -z-20"
         style={{
-          // 星云：三团柔和径向渐变（冷蓝 / 暖紫 / 冷青）+ 底色。
+          // 星云：冷蓝 + 暖紫两团柔和径向渐变（刻意很淡，只给底色一点层次）+ 底色。
           // 渐变终点用「同色 0 透明度」而非 transparent，避免过渡发灰。
           background:
-            "radial-gradient(60% 50% at 30% 20%, rgb(var(--sky-nebula-1) / 0.35), rgb(var(--sky-nebula-1) / 0) 70%)," +
-            "radial-gradient(50% 40% at 75% 70%, rgb(var(--sky-nebula-2) / 0.28), rgb(var(--sky-nebula-2) / 0) 70%)," +
-            "radial-gradient(45% 38% at 12% 82%, rgb(var(--sky-nebula-3) / 0.22), rgb(var(--sky-nebula-3) / 0) 72%)," +
+            "radial-gradient(60% 50% at 30% 20%, rgb(var(--sky-nebula-1) / 0.22), rgb(var(--sky-nebula-1) / 0) 70%)," +
+            "radial-gradient(50% 40% at 75% 70%, rgb(var(--sky-nebula-2) / 0.17), rgb(var(--sky-nebula-2) / 0) 70%)," +
             "var(--sky-void)",
         }}
       />

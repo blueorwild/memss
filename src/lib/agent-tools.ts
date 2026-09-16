@@ -87,9 +87,12 @@ function resolveMemory(
 /**
  * 创建小精灵的工具集。
  * ctx.currentCategoryId：用户当前所在类别（用于默认归属与导航上下文）。
- * ctx.userConfirmed：本条用户消息是否表达了明确同意（用于删除类操作的二次确认校验）。
+ * 危险操作（遗忘 / 迁移）的二次确认：语义判断交给模型，但服务端要求
+ * **「先问过」这个上下文**——ctx.consentAsked 为 true 时（上一轮工具真的返回过 needConfirm，
+ * 即小精灵确实问过用户），才认 confirm=true。这样首句祈使句（「把它删了吧」）无法一次通过，
+ * 模型必须先把话复述出来问一次；用户怎么回答（是的 / 好的 / 可以 / 嗯…）仍由模型判断。
  */
-export function createAgentTools(ctx: { currentCategoryId?: string; userConfirmed?: boolean }) {
+export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked?: boolean }) {
   return {
     searchMemories: tool({
       description:
@@ -246,13 +249,16 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
 
     moveMemory: tool({
       description:
-        "把一条回忆迁移到另一个类别（即改归属地点）。可逆操作，但会改变归属：需先向用户复述「哪条回忆 → 迁到哪个类别」并取得明确同意；未获同意时只返回待确认信息，得到同意后再以 confirm=true 调用。",
+        "把一条回忆迁移到另一个类别（即改归属地点）。可逆操作，但会改变归属：需先向用户复述「哪条回忆 → 迁到哪个类别」并问一次；首次调用必须 confirm=false（先征求同意），得到肯定回复后再以 confirm=true 调用。对方语气再确定也要先问。",
       inputSchema: z.object({
         memoryId: z.string().optional().describe("回忆 id（已知时优先）"),
         title: z.string().optional().describe("回忆标题"),
         categoryId: z.string().optional().describe("目标类别 id（已知时优先）"),
         categoryName: z.string().optional().describe("目标类别名称，如「东京」「云南」"),
-        confirm: z.boolean().optional().describe("是否已获得用户明确同意"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("用户是否已表示同意；肯定的回复都算（是的 / 好的 / 可以 / 嗯 / 行 / OK 等）"),
       }),
       execute: async ({ memoryId, title, categoryId, categoryName, confirm }) => {
         const resolved = resolveMemory(listMemories(), memoryId, title);
@@ -280,7 +286,7 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
         }
 
         // 未获得用户明确同意时，只返回待确认信息
-        if (!confirm || !ctx.userConfirmed) {
+        if (!confirm || !ctx.consentAsked) {
           return {
             needConfirm: true,
             memory: {
@@ -350,11 +356,14 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
 
     forgetMemory: tool({
       description:
-        "遗忘（永久删除）一条回忆。危险操作：必须先向用户复述并取得明确同意；未获同意时本工具只返回待确认信息、不会删除。用户同意后再以 confirm=true 调用。",
+        "遗忘（永久删除）一条回忆。危险操作：必须先向用户复述并问一次；首次调用必须 confirm=false（先征求同意），对方给出肯定回复后再以 confirm=true 调用。对方语气再确定也要先问；肯定回复即算同意，不必要求对方说「确认」。",
       inputSchema: z.object({
         memoryId: z.string().optional().describe("回忆 id（已知时优先）"),
         title: z.string().optional().describe("回忆标题"),
-        confirm: z.boolean().optional().describe("是否已获得用户明确同意"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("用户是否已表示同意；肯定的回复都算（是的 / 好的 / 可以 / 嗯 / 行 / OK 等）"),
       }),
       execute: async ({ memoryId, title, confirm }) => {
         const all = listMemories();
@@ -381,7 +390,7 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
         if (!mem) return { ok: false, message: "该回忆不存在。" };
 
         // 未获得用户明确同意时，只返回待确认信息
-        if (!confirm || !ctx.userConfirmed) {
+        if (!confirm || !ctx.consentAsked) {
           return {
             needConfirm: true,
             memory: { id: mem.id, title: mem.title, date: mem.date },
@@ -408,7 +417,7 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
 
     forgetCategory: tool({
       description:
-        "遗忘（删除）一个类别。危险操作：必须先取得用户明确同意。若类别（含子类别）下有回忆，须先让用户在「迁移到上一级」与「一并遗忘」之间选择。未获同意时本工具只返回待确认信息、不会删除。根类别不可删除。",
+        "遗忘（删除）一个类别。危险操作：必须先取得用户同意（肯定回复即算）。若类别（含子类别）下有回忆，须先让用户在「迁移到上一级」与「一并遗忘」之间选择。未获同意时本工具只返回待确认信息、不会删除。根类别不可删除。",
       inputSchema: z.object({
         categoryId: z.string().optional().describe("类别 id（已知时优先）"),
         name: z.string().optional().describe("类别名称"),
@@ -416,7 +425,10 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
           .enum(["purge", "move"])
           .optional()
           .describe("purge=一并遗忘回忆；move=把回忆迁移到上一级"),
-        confirm: z.boolean().optional().describe("是否已获得用户明确同意"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("用户是否已表示同意；肯定的回复都算（是的 / 好的 / 可以 / 嗯 / 行 / OK 等）"),
       }),
       execute: async ({ categoryId, name, mode, confirm }) => {
         let targetId = categoryId?.trim() || undefined;
@@ -438,7 +450,7 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
         const memoryCount = getSubtreeMemoryCounts().get(cat.id) ?? 0;
         const options = memoryCount > 0 ? ["move", "purge"] : ["purge"];
 
-        if (!confirm || !ctx.userConfirmed) {
+        if (!confirm || !ctx.consentAsked) {
           return {
             needConfirm: true,
             category: { id: cat.id, name: cat.name },
