@@ -152,6 +152,8 @@ function TileBoard({
   size: Size;
 }) {
   const router = useRouter();
+  // 降载：reduced-motion 下关闭卡片浮动动画
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   // 交替分配到两轨，并记录每张卡片在本轨内的序号
   const placed: { m: MemoryCard; i: number; track: number; k: number; cnt: number }[] = [];
@@ -215,11 +217,19 @@ function TileBoard({
               translateX: "-50%",
               translateY: "-50%",
             }}
-            animate={{
-              x: [0, j.floatAmp * 0.7, 0, -j.floatAmp * 0.7, 0],
-              y: [0, -j.floatAmp, 0, j.floatAmp, 0],
-            }}
-            transition={{ duration: j.floatDur, repeat: Infinity, ease: "easeInOut" }}
+            animate={
+              reduceMotion
+                ? undefined
+                : {
+                    x: [0, j.floatAmp * 0.7, 0, -j.floatAmp * 0.7, 0],
+                    y: [0, -j.floatAmp, 0, j.floatAmp, 0],
+                  }
+            }
+            transition={
+              reduceMotion
+                ? undefined
+                : { duration: j.floatDur, repeat: Infinity, ease: "easeInOut" }
+            }
           >
             <div style={{ transform: `rotate(${j.rotate}deg) scale(${j.scale})` }}>
               <button

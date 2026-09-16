@@ -46,9 +46,9 @@
 - 依赖新增：`framer-motion` 13.2.0、`zustand` 5.0.15。
 - P3 已完成：`store/sprite.ts`（zustand）、`components/sprite/{Sprite,ActionBar,ChatPanel,MemoryForm}.tsx`（`MemoryForm` 由 `UploadMemoryForm` 重构而来，支持新建/编辑）、`api/categories`（GET）、`api/memories`（POST multipart 上传，落盘 `media/uploads/`）；`layout.tsx` 已挂载 `<Sprite />`。对话为本地模拟流式（P4 接真实 LLM）。
 - P4 已完成：见下方「P4 Agent 能力（已完成）」。
-- Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–5 ✅，见文末两节。
-- 细节打磨（回忆编辑/封面/标题限字/历史批量删除确认/面板拖动）✅，见文末「细节打磨」节。
-- **下一步**：Phase 2 **Step 6**（移动端降载 + 桌面回归 + 375px 全流程验证）。
+- Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–6 ✅，见文末两节。
+- 细节打磨（回忆编辑/裁剪/标题限字/历史批量删除确认/面板拖动/快捷键守卫）✅，见文末「细节打磨」节。
+- **下一步**：E 打磨（建议顺序 E2 caption → E1 分类树重命名/移动 → E3 多音乐 → E5 功能按钮 → E4 图片放大 → 其余，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
 
 ## 经验与坑
 
@@ -161,4 +161,13 @@
 - **`CropDialog` 不能把「打开时用外部值重置」写成 effect**（会触发 `react-hooks/set-state-in-effect`）。做法：父组件 `{cropOpen && <CropDialog .../>}` 按需挂载，子组件用 `useState(() => clampCrop(value))` 初始化，关闭即卸载。
 - **3D 滚筒里 `getBoundingClientRect()` 因透视/旋转失真**，验证卡片布局比例要看 `getComputedStyle`/offset 尺寸，别看 rect。
 - **踩坑：全局快捷键不能无差别处理**。`MemoryScene`（←/→ 切图、空格播放、Esc 返回）与 `StarfieldPage`（Esc 上级）都用 window `keydown` + `preventDefault()`，导致在 `/memory/[id]` 用小精灵面板输入时 ←/→ 无法移动光标、**空格被拿去播放/暂停音乐（打不出空格）**、Esc 误返回。已抽象 `src/lib/dom.ts` 的 `shouldIgnorePageShortcut(e)`：目标在 `input/textarea/select/[contenteditable]` 内、存在 `[role="dialog"]`、或 `useSpriteStore.getState().open` 时忽略快捷键。
+
+## Phase 2 Step 6：移动端降载（已完成）
+- **`StarBackground`**：在 effect 内用 `matchMedia` 判断（绘制循环不能用 hook）——窄屏 `dpr ≤ 1.5`（桌面 ≤2，**canvas 像素数是手机端最大开销**）、星数上限窄屏 220、`prefers-reduced-motion` 时**只画一帧**（不启 rAF、不监听 mousemove 视差）、`document.hidden` 时跳过重绘。
+- **`Sprite`**：`useMediaQuery("(prefers-reduced-motion: reduce)")` → 关呼吸光晕/球体的无限动画、不生成常驻粒子与拖拽拖尾/星尘；窄屏常驻粒子 20→10、星尘 1 颗。
+- **`MemoryCylinder`**：平铺卡片的浮动动画（`animate x/y repeat:Infinity`）按 reduce-motion 关闭（`FlowTracks` 自动上滚本就已关）。
+- **`MemoryScene`**：reduce-motion 下进退场**直接切换**——`motion-reduce:animate-none` + `handleBack` 里直接 `router.push`（**不能只依赖 `animationend`，动画被禁用时不会触发，会卡住不返回**）。
+- **验证口径**：`prefers-reduced-motion` 用 CDP `Emulation.setEmulatedMedia` 切换；判定星空是否在动用「对 canvas `getImageData` 求校验和，间隔采样两次是否相等」。窄屏 dpr 看 `canvas.width / clientWidth`。全局快捷键/动画名看 `getComputedStyle().animationName`。
+- **结果**：窄屏 dpr 1.5、桌面 2；reduce 静态 / normal 闪烁；`5/7/100 段` 卡片均 3:2；100 段仅渲染 10–12 张；1440/375 无横向溢出；控制台无报错；窄屏裁剪弹窗 353×391 适配 375。
+- **下一步（E 打磨）**：建议 E2 caption → E1 分类树重命名/移动 → E3 多音乐 → E5 功能按钮 → E4 图片放大 → 其余，详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
 

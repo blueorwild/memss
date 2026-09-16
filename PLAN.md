@@ -249,7 +249,7 @@ ai_try/
 
 > 效果对比：同类多步检索任务由约 42s 降至约 13.5s。
 
-### 13.3 Phase 2 — 移动端适配（Step 1–5 ✅，Step 6 待做）
+### 13.3 Phase 2 — 移动端适配（Step 1–6 ✅ 已完成）
 **统一「双轨」布局（用户确认）**：宽屏（≥640px）= 上下两行横向轨道；窄屏 = 左右两列纵向轨道；手机横屏（矮容器）自动横向 + 紧凑/迷你卡片。
 - 模式判定：每轨容量 `min(几何容量, PER_TRACK_MAX=3)` → 阈值 `2×3=6`；`n ≤ 6` **平铺**（格内随机偏移 + 轻微旋转 + 缓缓浮动 + 第 2 轨错开半卡），`n > 6` **流动**（大半径滚筒 `R=max(长边×2.5,1200)`、仅渲染可见+屏外缓冲、两端 CSS mask 渐隐、随机起点、由旧至新、拖拽+惯性）。
 - 同屏完整缩略图 ≤ 6；1 段居中、2 段间距 `1.5×卡宽`（受可用区约束）。
@@ -262,7 +262,10 @@ ai_try/
 **Step 4 ✅ 星空页**（`9e20e17` + `d72d583`）：`useElementSize` 让星距随容器收敛；窄屏纵向滚筒（`rotateX`、上下拖拽、背面剔除）；`VerticalTimelineRail`（左侧、上旧下新、光标对齐弧线、竖短横长星芒）；纵向滚筒自动上滚 1.5°/s；横竖滚筒均剔除背面卡片（带淡出）；手机横屏紧凑布局；header 安全区。
 **双轨统一重塑 ✅**（`67c9ffb` + `40fbedf` + `d031bb2`）：`MemoryCylinder.tsx` 重写为「双轨统一」（`MemoryCylinder` 判定 + `TileBoard` + `FlowTracks`）；`layout-seed.ts` 删除 `gridScatter`/`timelineScatter`，新增 `TRACK_GAP=24`/`trackCapacity`/`trackCrossPositions`/`tileJitter`/`flowTilt`；星轨占位避让、每轨 ≤3 张稀疏化、平铺偏移限制在格内并双轨交错、横屏迷你卡片 + 星轨压缩；`memories.created_at` 加列（无日期排序用）；图片预热 / 1~2 段居中 / `seed:demo` 测试数据脚本。
 **Step 5 ✅ 详情页**（`76ba34a`）：`PlayButton`（▶/❚❚ + 呼吸光晕，`failed` 红框提示）、**移除自动播放**；左右滑动切图（`|dx|>40 且 |dx|>|dy|×1.5`）；header/main 窄屏 padding + 安全区；标题响应式；背景图 `blur-sm → blur-xs` + `draggable={false}`；**窄屏 fixed 底栏 `grid grid-cols-3`**（‹ / ▶ / › 同水平线）；`Sprite` 窄屏默认球位置上移 64px 避开底栏。实测窄屏图片宽 341（91% 视口）、底栏三按钮 48px 同高、无横向溢出。
-**Step 6 ⏳ 待做**：移动端降载（`StarBackground` dpr ≤ 1.5、星数/粒子/星尘上限下调、尊重 `prefers-reduced-motion`）+ 桌面 1440×900 回归 + 375px 全流程验证（导航→详情→对话→上传→历史）。
+**Step 6 ✅ 收尾（降载 + 回归 + 全流程）**：
+- **降载**：`StarBackground` 窄屏 `dpr ≤ 1.5`（桌面仍 `≤2`）、星数上限窄屏降为 220、`prefers-reduced-motion` 下**只静态画一帧**（无 rAF/闪烁/视差）、`document.hidden` 时暂停重绘；`Sprite` reduced-motion 关呼吸与常驻粒子、窄屏粒子减半（20→10）+ 星尘减半、reduced-motion 下不产生拖尾/星尘；`MemoryCylinder` 平铺卡片浮动动画按 reduced-motion 关闭；`MemoryScene` reduced-motion 下进退场**直接切换**（`motion-reduce:animate-none` + 返回时立即跳转，避免依赖 `animationend`）。
+- **回归**：桌面 1440×900 + 窄屏 375 全页无横向溢出；`5/7/100 段` 卡片均为 **3:2**（200×133 / 150×100）、100 段仅渲染 10–12 张（视口裁剪正常）；详情页/面板/编辑/裁剪无回归；控制台无报错。
+- **全流程**：窄屏 星空 → 点卡片进详情 → 小精灵抽屉 → 编辑 → **双击瓷砖弹出裁剪框**（353×391 完全适配 375 视口）→ 保存。
 
 ### 13.4 Phase 3 — 部署改造（代码层）
 1. `MEDIA_ROOT` 环境变量：`api/media`、`api/memories` 路径可配（默认 `./media`）。
@@ -296,7 +299,7 @@ ai_try/
 ### 14.1 回忆编辑
 - **入口只走小精灵面板**（符合「操作统一走小精灵」约定）：详情页 header 的「编辑」按钮与 Agent 工具 `openEditMemory` 都只是切到面板的编辑视图（`store.view = "edit"` + `editMemoryId`）。
 - **共享表单** `MemoryForm`（`mode: "create" | "edit"`）取代原 `UploadMemoryForm`：编辑态先 `GET /api/memories/[id]` 回填；可改标题/描述/类别/日期，增删图片、设封面、替换或删除音乐。
-- **API**：`GET /api/memories/[id]`；`PATCH /api/memories/[id]`（multipart）字段 `title/categoryId/date/description/location`、`keepImageIds`（有序 JSON）、`coverRef`（现有 mediaId 或 `new:<index>`）、`removeAudio`、`images[]`、`audio`。图片顺序 = 保留的旧图（按 `keepImageIds`）在前、新增图在后；`PATCH` 只接受确实属于该回忆的图片 id（防越权）。
+- **API**：`GET /api/memories/[id]`；`PATCH /api/memories/[id]`（multipart）字段 `title/categoryId/date/description/location`、`imageMeta`（有序 JSON `[{id,x,y,scale}]`，含保留顺序与裁剪）、`newFocal`（与 `images[]` 同序的 `[{x,y,scale}]`）、`coverRef`（现有 mediaId 或 `new:<index>`）、`removeAudio`、`images[]`、`audio`。图片顺序 = 保留的旧图（按 `imageMeta`）在前、新增图在后；`PATCH` 只接受确实属于该回忆的图片 id（防越权）。
 - **迁移类别**：编辑表单里改类别即可；小精灵侧新增 `moveMemory` 工具（**双保险二次确认**：工具 `confirm` + 服务端校验最后一条用户消息含确认词），迁移后重算 `location` 并下发 `moved` 动作触发刷新。
 
 ### 14.2 缩略图（封面）
@@ -313,3 +316,19 @@ ai_try/
 - **图片裁剪（焦点 + 缩放）**：`media` 加 `focalX`/`focalY`（百分比，默认 50）+ `cropScale`（百分比 100–600，默认 100）。三者用同一套 CSS（`object-position` + `transform: scale` + `transform-origin`，见 `src/lib/crop.ts` 的 `coverStyle`）在**瓷砖 / 卡片 / 详情主图 / 详情背景 / 裁剪弹窗**里完全一致（背景额外叠 1.05 基础缩放）。表单瓷砖：**单击 = 设封面**、**双击 = 打开裁剪弹窗**（单击动作延迟 230ms，双击时取消，避免误设封面）。弹窗内固定 3:2 框，图片可拖动平移（按溢出比 1:1 跟手）、滚轮 / 双指捏合 / 滑杆缩放（100–600），可重置。提交 `newFocal`（与 `images[]` 同序的 `[{x,y,scale}]`）与 `imageMeta`（有序 `[{id,x,y,scale}]`），服务端 clamp。不生成新图片文件。
 - **卡片比例统一为 3:2**：`CARD_NORMAL {200,133}`、`COMPACT {150,100}`、`TINY {120,80}`，与详情页一致，预览所见即所得。
 - **页面快捷键守卫**（`src/lib/dom.ts` 的 `shouldIgnorePageShortcut`）：焦点在输入控件内 / 有 `[role="dialog"]` / 小精灵面板打开时，`MemoryScene`（←/→ 切图、空格播放、Esc 返回）与 `StarfieldPage`（Esc 上级）不再抢占按键——否则在小精灵面板里输入时 ←/→ 无法移动光标、空格打不出、Esc 误返回。
+
+## 15. 后续打磨候选（E 计划，未开始）
+
+> A（Phase 2 Step 6）已完成；B/C/D（部署与上线）在另一台机器上做。以下为上线前后的可选打磨项，建议顺序 E2 → E1 → E3 → E5 → E4 → 其余。
+
+| # | 项 | 说明 | 工作量 |
+|---|---|---|---|
+| E1 | 分类树重命名 / 移动 | 现仅「遗忘」（删除级联）。加 `PATCH /api/categories/[id]`（改名、改父级；防环、同级重名校验）+ 星空页「编辑」弹层 | 小–中 |
+| E2 | 每图 caption 编辑 | `media.caption` 已存在（seed 有值但 UI 未暴露）；表单每图加说明输入，详情页显示 | 小 |
+| E3 | 一个回忆多首音乐 | 表结构已支持多条 `audio`；表单多音乐增删排序，详情页播放列表（现单曲 loop） | 中 |
+| E4 | 详情页图片放大查看 | 双击/双指缩放看图（注意与快捷键守卫、浏览器手势协调） | 小–中 |
+| E5 | 小精灵功能按钮扩展 | `ActionBar` 增「随机回忆 / 回到地球 / 导航到…」等 | 小 |
+| E6 | 搜索 / 筛选 UI | 对话之外给显式搜索入口（关键词 / 地点 / 日期） | 中 |
+| E7 | 批量导入 | 选目录按文件夹 / 日期自动建类别（File System Access API） | 大 |
+| E8 | 小精灵形象 / 动效、语音 | TTS/STT、形象设计 | 中大（偏设计） |
+| E9 | 主题色 / 正式命名 | 定色板与站名，落到 CSS 变量 | 小（需定风格） |

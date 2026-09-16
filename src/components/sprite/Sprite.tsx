@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
-import { useIsMobile } from "@/lib/use-media-query";
+import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
@@ -60,6 +60,8 @@ export default function Sprite() {
 
   // 窄屏：面板改为底部抽屉
   const isMobile = useIsMobile();
+  // 降载：减少动态效果（关闭呼吸/粒子无限动画与拖拽特效）
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // 底部安全区高度（px）：让悬浮球避开 iPhone 底部横条
   const safeBottomRef = useRef(0);
 
@@ -136,13 +138,16 @@ export default function Sprite() {
     const cx = next.x + BALL / 2;
     const cy = next.y + BALL / 2;
 
+    // reduced-motion 下不产生拖尾/星尘特效
+    if (reduceMotion) return;
+
     // 拖尾光带点：按 TRAIL_LIFE 淡出，并在淡出后（+偏移）从 DOM 移除
     const tid = trailId.current++;
     setTrail((t) => [...t.slice(-50), { id: tid, x: cx, y: cy }]);
     window.setTimeout(() => setTrail((t) => t.filter((p) => p.id !== tid)), TRAIL_LIFE * 1000 + REMOVE_OFFSET);
 
-    // 星尘粒子：沿拖拽路径随机方向飞溅、飘散消失
-    const count = 2 + Math.floor(Math.random() * 2); // 每次 2–3 颗
+    // 星尘粒子：沿拖拽路径随机方向飞溅、飘散消失（窄屏减半）
+    const count = isMobile ? 1 : 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const dist = 24 + Math.random() * 100;
@@ -158,7 +163,7 @@ export default function Sprite() {
       setDust((arr) => [...arr.slice(-50), particle]);
       window.setTimeout(() => setDust((arr) => arr.filter((p) => p.id !== id)), DUST_LIFE * 1000 + REMOVE_OFFSET);
     }
-  }, []);
+  }, [reduceMotion, isMobile]);
 
   // 结束拖拽：记录本次是否拖动（供 click 判断），并保存位置
   const onPointerUp = useCallback(() => {
@@ -228,10 +233,13 @@ export default function Sprite() {
     window.addEventListener("pointerup", onPanelPointerUp, { once: true });
   }
 
-  // 拖拽时粒子数量翻倍，更密集
-  const particles = dragging
-    ? [...PARTICLES, ...PARTICLES.map((p) => ({ ...p, dx: p.dx * 1.4, dy: p.dy * 1.4, delay: p.delay + 0.12 }))]
-    : PARTICLES;
+  // 拖拽时粒子数量翻倍；窄屏减半；reduced-motion 关闭常驻粒子
+  const baseParticles = isMobile ? PARTICLES.slice(0, 10) : PARTICLES;
+  const particles = reduceMotion
+    ? []
+    : dragging
+      ? [...baseParticles, ...baseParticles.map((p) => ({ ...p, dx: p.dx * 1.4, dy: p.dy * 1.4, delay: p.delay + 0.12 }))]
+      : baseParticles;
 
   // 面板位置：优先用户拖动的坐标，否则置于球左上方（pos 初始化后才会渲染面板）
   const panelStyle = panelPos ?? (pos ? derivedPanelPos(pos) : undefined);
@@ -379,8 +387,8 @@ export default function Sprite() {
         <motion.span
           className="absolute inset-0 rounded-full"
           style={{ background: "radial-gradient(circle, rgba(124,196,255,0.55) 0%, rgba(80,160,255,0) 70%)" }}
-          animate={{ scale: [1, 1.35, 1], opacity: [0.6, 0.95, 0.6] }}
-          transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+          animate={reduceMotion ? undefined : { scale: [1, 1.35, 1], opacity: [0.6, 0.95, 0.6] }}
+          transition={reduceMotion ? undefined : { duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
         />
         {/* 半透明球体（青蓝 / 电光蓝） */}
         <motion.span
@@ -391,8 +399,8 @@ export default function Sprite() {
             boxShadow:
               "0 0 18px 6px rgba(90,190,255,0.7), inset 0 0 12px rgba(255,255,255,0.55)",
           }}
-          animate={{ scale: [1, 1.08, 1] }}
-          transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+          animate={reduceMotion ? undefined : { scale: [1, 1.08, 1] }}
+          transition={reduceMotion ? undefined : { duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
         />
       </motion.button>
     </>

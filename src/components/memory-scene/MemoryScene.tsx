@@ -16,6 +16,7 @@ import {
 import type { Category, MemoryWithMedia } from "@/lib/db/queries";
 import { coverStyle } from "@/lib/crop";
 import { shouldIgnorePageShortcut } from "@/lib/dom";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
 
 /** 播放/暂停背景音乐按钮：带呼吸光晕（未播放时更明显，提示可点） */
@@ -89,12 +90,18 @@ export default function MemoryScene({
   const leavingRef = useRef(false);
 
   const parentPath = breadcrumb.length > 0 ? breadcrumb.map((c) => c.id).join("/") : "globe";
+  // 降载：reduced-motion 下不要入场/退场动画，直接切换
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const handleBack = useCallback(() => {
     if (leavingRef.current) return;
     leavingRef.current = true;
+    if (reduceMotion) {
+      router.push(`/star/${parentPath}`);
+      return;
+    }
     setLeaving(true);
-  }, []);
+  }, [reduceMotion, router, parentPath]);
 
   /** 删除当前回忆：成功后走退出动画返回所属类别 */
   const handleDelete = useCallback(async () => {
@@ -231,7 +238,7 @@ export default function MemoryScene({
 
   return (
     <div
-      className={`relative flex min-h-dvh flex-col bg-neutral-950 text-white ${
+      className={`relative flex min-h-dvh flex-col bg-neutral-950 text-white motion-reduce:animate-none ${
         leaving
           ? "animate-[memoryOut_0.26s_ease-out_forwards]"
           : "animate-[memoryIn_0.2s_ease-out_both]"
