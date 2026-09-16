@@ -18,6 +18,7 @@ import { coverStyle } from "@/lib/crop";
 import { shouldIgnorePageShortcut } from "@/lib/dom";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
+import ImageViewer from "./ImageViewer";
 
 /** 播放/暂停背景音乐按钮：带呼吸光晕（未播放时更明显，提示可点） */
 function PlayButton({
@@ -81,6 +82,8 @@ export default function MemoryScene({
   const [failed, setFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 全屏看图（Lightbox）开关
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   // 音量淡入淡出的 rAF 句柄
@@ -177,7 +180,7 @@ export default function MemoryScene({
     else void startPlayback();
   }, [audio, playing, startPlayback, stopPlayback]);
 
-  /** 左右滑动切换图片：位移 >40px 且以水平为主方向（不干扰纵向滚动） */
+  /** 左右滑动切换图片；位移极小则视为「点击」→ 打开全屏看图 */
   const swipeRef = useRef<{ x: number; y: number } | null>(null);
   const onSwipeStart = useCallback((e: React.PointerEvent) => {
     swipeRef.current = { x: e.clientX, y: e.clientY };
@@ -191,6 +194,9 @@ export default function MemoryScene({
       const dy = e.clientY - s.y;
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         changeImage(dx < 0 ? 1 : -1);
+      } else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+        // 点按（画面上没有明显位移）→ 放大查看
+        setViewerOpen(true);
       }
     },
     [changeImage],
@@ -343,7 +349,8 @@ export default function MemoryScene({
             </button>
           )}
           <div
-            className="relative flex-1 overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+            className="relative flex-1 cursor-zoom-in overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+            title="点击放大查看"
             onPointerDown={onSwipeStart}
             onPointerUp={onSwipeEnd}
             onPointerCancel={onSwipeCancel}
@@ -405,6 +412,18 @@ export default function MemoryScene({
           <audio ref={audioElRef} src={`/api/media/${audio.path}`} loop preload="metadata" />
         )}
       </main>
+
+      {/* 全屏看图：key 绑定当前图片，切图即重置缩放与位移 */}
+      {viewerOpen && current && (
+        <ImageViewer
+          key={current.id}
+          images={images}
+          index={index}
+          title={memory.title}
+          onIndexChange={setIndex}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
 
       {/* 窄屏固定底栏：切图按钮在左右两侧，播放按钮居中（同一水平线） */}
       <div className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 items-center border-t border-white/10 bg-neutral-950/80 px-4 pt-3 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur sm:hidden">

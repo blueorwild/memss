@@ -48,7 +48,7 @@
 - P4 已完成：见下方「P4 Agent 能力（已完成）」。
 - Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–6 ✅，见文末两节。
 - 细节打磨（回忆编辑/裁剪/标题限字/历史批量删除确认/面板拖动/快捷键守卫）✅，见文末「细节打磨」节。
-- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
+- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
 
 ## 经验与坑
 
@@ -169,7 +169,7 @@
 - **`MemoryScene`**：reduce-motion 下进退场**直接切换**——`motion-reduce:animate-none` + `handleBack` 里直接 `router.push`（**不能只依赖 `animationend`，动画被禁用时不会触发，会卡住不返回**）。
 - **验证口径**：`prefers-reduced-motion` 用 CDP `Emulation.setEmulatedMedia` 切换；判定星空是否在动用「对 canvas `getImageData` 求校验和，间隔采样两次是否相等」。窄屏 dpr 看 `canvas.width / clientWidth`。全局快捷键/动画名看 `getComputedStyle().animationName`。
 - **结果**：窄屏 dpr 1.5、桌面 2；reduce 静态 / normal 闪烁；`5/7/100 段` 卡片均 3:2；100 段仅渲染 10–12 张；1440/375 无横向溢出；控制台无报错；窄屏裁剪弹窗 353×391 适配 375。
-- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
 
 ## 搜索（原 E5+E6，已完成）
 - **一套内核两个入口**：`src/lib/memory-search.ts`（`collectMemories` / `buildCategoryPaths` / `searchMemories`）。**Agent 的 `searchMemories` 工具与 `GET /api/memories/search` 调同一个函数**——否则「对话能搜到、面板搜不到」这类漂移迟早出现。默认 30 条、上限 100。
@@ -186,3 +186,10 @@
 - **踩坑（重要约定）：不要在 Radix Dialog 内使用 Portal 型 `Popover`/`Combobox`**。实测三重问题：① `PopoverContent` 的 `z-[80]` 低于 `DialogContent` 的 `z-[91]`，浮层被弹层盖住点不到（`elementFromPoint` 在候选项上返回的是弹层）；② Radix Dialog modal 会给 `body` 设 `pointer-events: none`（wrapper 继承 `none`）；③ 焦点陷阱与 cmdk 输入框冲突（`new-category-dialog.tsx` 的注释早就写了这点）。**改用弹层内的「内联可折叠 cmdk 列表」**（见 `CategoryEditDialog`：按钮切换 `pickerOpen`，展开时在弹层内渲染 `Command` + `Command.Input` + `Command.List`，`max-h-52 overflow-y-auto overscroll-contain`）。列表较长时在标签上标注「（共 N 项）」，避免「看起来只有 4 项、其实还能滚」的错觉。
 - **验证教训：JS `.click()` 会绕过层叠顺序**——正是它让 E1 首轮 UI 测试「通过」却漏掉了下拉被遮挡的 bug。UI 验证必须用 CDP **真实坐标点击**（`Input.dispatchMouseEvent` 的 mousePressed/Released，移动端用 `Input.dispatchTouchEvent`），列表项不可见时先用 `mouseWheel` / touchMove 滚动到可视区再点；用 `document.elementFromPoint()` 断言某点是否真的命中目标元素（被遮挡时返回的是遮挡者）。
 
+
+## E4 详情页图片放大 / Lightbox（已完成）
+- 新 `src/components/memory-scene/ImageViewer.tsx`：`object-contain` 看**完整原图**（不做焦点裁剪）；滚轮（**以光标为锚点**：换算 `k = next/scale` 后调整 translate）/ 双指捏合 / 双击（1↔2.5 倍）缩放，放大后拖动平移（按容器尺寸夹紧），未放大时横向滑动或 ←/→ 切图，Esc / 点图片外留白 / ✕ 关闭。
+- 详情主图**单击**打开：与既有左右滑动复用同一组 pointerdown/up，**位移 < 8px 判为点按**（不要另加 onClick，否则滑动后也会触发）。组件以 `key={图片 id}` 挂载 → 切图即重置缩放与位移，**避免在 effect 里 setState 触发 lint**。
+- **与页面快捷键的冲突靠约定解决**：Lightbox 容器加 `role="dialog"`，`shouldIgnorePageShortcut` 会让详情页的 ←/→ 切图、空格播放、Esc 返回全部失效，改由查看器自己处理（实测 Esc 关闭后 URL 不变，不会误返回上级）。
+- **踩坑（重要）：触摸点击会在 `pointerup` 之后再补发一次「合成 click」**，落点若在该时刻新出现的元素上，会立刻触发它的 onClick——表现为「点开查看器又瞬间关闭 = 点了没反应」。解决：组件记录打开时刻，`< 400ms` 的空白点击一律忽略。（排查手段：给容器挂监听收集 pointerdown/pointerup/click 事件序列，会看到只有 pointerup、合成 click 落到了新挂载的遮罩上。）
+- 顺便修的细节：控件在**亮色图片**上会看不清 → 计数/提示用 `bg-black/40 backdrop-blur` 小胶囊、按钮改 `bg-black/40`；上传/编辑表单的 `<input type="date">` 补 `[color-scheme:dark]`，日历图标才与搜索框一致显示为白色（默认在暗色下几乎不可见）。

@@ -570,7 +570,7 @@ export default function MemoryForm({
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className={inputCls}
+          className={`${inputCls} [color-scheme:dark]`}
         />
         <textarea
           value={description}
