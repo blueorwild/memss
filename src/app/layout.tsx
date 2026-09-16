@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sprite from "@/components/sprite/Sprite";
+import { SKY_VOID_HEX } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +24,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#05060a",
+  // 与 globals.css 的 --sky-void 同源（元数据只能用字面量）
+  themeColor: SKY_VOID_HEX,
   // 软键盘弹出时收缩布局视口（Android），避免输入框被键盘遮住
   interactiveWidget: "resizes-content",
 };

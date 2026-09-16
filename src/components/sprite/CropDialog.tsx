@@ -163,7 +163,7 @@ export default function CropDialog({
             step={1}
             value={crop.scale}
             onChange={(e) => update({ scale: Number(e.target.value) })}
-            className="h-1 flex-1 accent-indigo-400"
+            className="h-1 flex-1 accent-accent-deep"
           />
           <span className="text-xs text-white/50">放大</span>
           <span className="w-12 shrink-0 text-right text-xs text-white/60">{crop.scale}%</span>
@@ -191,7 +191,7 @@ export default function CropDialog({
                 onConfirm(clampCrop(crop));
                 onOpenChange(false);
               }}
-              className="rounded-full bg-indigo-500/80 px-4 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500"
+              className="rounded-full bg-accent-deep/80 px-4 py-1.5 text-sm text-white transition-colors hover:bg-accent-deep"
             >
               确定
             </button>

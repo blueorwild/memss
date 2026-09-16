@@ -87,7 +87,7 @@ function ImageTile({
         }}
         style={{ aspectRatio: "3 / 2" }}
         className={`relative w-full cursor-pointer overflow-hidden rounded-lg border transition-colors ${
-          cover ? "border-indigo-400" : "border-white/10 hover:border-white/30"
+          cover ? "border-accent" : "border-white/10 hover:border-white/30"
         }`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -100,7 +100,7 @@ function ImageTile({
         />
       </div>
       {cover && (
-        <span className="pointer-events-none absolute left-1 top-1 rounded bg-indigo-500/90 px-1.5 py-0.5 text-[10px] text-white">
+        <span className="pointer-events-none absolute left-1 top-1 rounded bg-accent-deep/90 px-1.5 py-0.5 text-[10px] text-white">
           封面
         </span>
       )}
@@ -586,7 +586,7 @@ export default function MemoryForm({
         <button
           type="submit"
           disabled={submitting || overLimit}
-          className="w-full rounded-full bg-indigo-500/80 py-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+          className="w-full rounded-full bg-accent-deep/80 py-3 text-sm text-white transition-colors hover:bg-accent-deep disabled:opacity-40"
         >
           {submitting ? "保存中…" : mode === "edit" ? "保存修改" : "保存回忆"}
         </button>

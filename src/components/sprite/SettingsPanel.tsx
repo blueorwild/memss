@@ -158,11 +158,11 @@ export default function SettingsPanel() {
               }`}
             >
               {p.id === config?.activeProvider && (
-                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle" />
+                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-ok align-middle" />
               )}
               {p.name}
               {p.id === config?.activeProvider && (
-                <span className="ml-1 text-[10px] text-emerald-300/80">使用中</span>
+                <span className="ml-1 text-[10px] text-ok/80">使用中</span>
               )}
             </button>
           ))}
@@ -223,14 +223,14 @@ export default function SettingsPanel() {
           />
         </div>
 
-        {status && <p className="text-xs text-emerald-300">{status}</p>}
+        {status && <p className="text-xs text-ok">{status}</p>}
         {error && <p className="text-xs text-red-400">{error}</p>}
 
         <button
           type="button"
           onClick={() => void save()}
           disabled={busy}
-          className="w-full rounded-full bg-indigo-500/80 py-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+          className="w-full rounded-full bg-accent-deep/80 py-3 text-sm text-white transition-colors hover:bg-accent-deep disabled:opacity-40"
         >
           {busy ? "保存中…" : "保存并启用"}
         </button>

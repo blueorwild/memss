@@ -16,8 +16,8 @@ const BALL = 56;
 const MARGIN = 12;
 /** 位置存储键（localStorage） */
 const POS_KEY = "sprite-pos";
-/** 科幻青蓝主色（电光蓝） */
-const SPARK = "#7cc4ff";
+/** 科幻青蓝主色（电光蓝）：走主题 token，见 globals.css 的 --accent */
+const SPARK = "rgb(var(--accent))";
 /** 拖尾生命时长（秒）：淡出动画时长；DOM 移除在此基础上 +REMOVE_OFFSET */
 const TRAIL_LIFE = 1.2;
 /** 星尘生命时长（秒）：稍长于拖尾；DOM 移除同样 +REMOVE_OFFSET */
@@ -259,7 +259,7 @@ export default function Sprite() {
             top: p.y,
             translateX: "-50%",
             translateY: "-50%",
-            background: `radial-gradient(circle, rgba(160,215,255,0.85) 0%, rgba(124,196,255,0.35) 45%, rgba(124,196,255,0) 70%)`,
+            background: `radial-gradient(circle, rgb(var(--sky-star) / 0.85) 0%, rgb(var(--accent) / 0.35) 45%, rgb(var(--accent) / 0) 70%)`,
             filter: "blur(1px)",
           }}
           initial={{ opacity: 0.85, scale: 1 }}
@@ -281,7 +281,7 @@ export default function Sprite() {
             translateX: "-50%",
             translateY: "-50%",
             background: SPARK,
-            boxShadow: `0 0 6px 2px rgba(124,196,255,0.9)`,
+            boxShadow: `0 0 6px 2px rgb(var(--accent) / 0.9)`,
           }}
           initial={{ x: 0, y: 0, opacity: 0.95, scale: 1 }}
           animate={{ x: p.dx, y: p.dy, opacity: 0, scale: 0.2 }}
@@ -303,7 +303,7 @@ export default function Sprite() {
               translateX: "-50%",
               translateY: "-50%",
               background: SPARK,
-              boxShadow: `0 0 5px 1.5px rgba(124,196,255,0.9)`,
+              boxShadow: `0 0 5px 1.5px rgb(var(--accent) / 0.9)`,
             }}
             animate={{ x: [0, p.dx], y: [0, p.dy], opacity: [0, 0.95, 0], scale: [0.5, 1, 0.3] }}
             transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
@@ -333,8 +333,8 @@ export default function Sprite() {
             style={isMobile ? undefined : panelStyle}
             className={
               isMobile
-                ? "fixed inset-x-0 bottom-0 z-[70] flex h-[min(78dvh,560px)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-[#0b0f18]/95 pb-[var(--safe-bottom)] text-white shadow-2xl backdrop-blur-xl"
-                : `fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f18]/95 text-white shadow-2xl backdrop-blur-xl ${
+                ? "fixed inset-x-0 bottom-0 z-[70] flex h-[min(78dvh,560px)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-panel/95 pb-[var(--safe-bottom)] text-white shadow-2xl backdrop-blur-xl"
+                : `fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-panel/95 text-white shadow-2xl backdrop-blur-xl ${
                     panelStyle ? "" : "bottom-24 right-6"
                   }`
             }
@@ -395,7 +395,10 @@ export default function Sprite() {
         {/* 外层呼吸光晕 */}
         <motion.span
           className="absolute inset-0 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(124,196,255,0.55) 0%, rgba(80,160,255,0) 70%)" }}
+          style={{
+            background:
+              "radial-gradient(circle, rgb(var(--accent) / 0.55) 0%, rgb(var(--accent-deep) / 0) 70%)",
+          }}
           animate={reduceMotion ? undefined : { scale: [1, 1.35, 1], opacity: [0.6, 0.95, 0.6] }}
           transition={reduceMotion ? undefined : { duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
         />
@@ -404,9 +407,9 @@ export default function Sprite() {
           className="absolute inset-[10px] rounded-full border border-white/30"
           style={{
             background:
-              "radial-gradient(circle at 35% 30%, rgba(225,245,255,0.95), rgba(110,200,255,0.55) 45%, rgba(40,120,220,0.5) 100%)",
+              "radial-gradient(circle at 35% 30%, rgb(var(--sky-star) / 0.95), rgb(var(--accent) / 0.55) 45%, rgb(var(--accent-deep) / 0.5) 100%)",
             boxShadow:
-              "0 0 18px 6px rgba(90,190,255,0.7), inset 0 0 12px rgba(255,255,255,0.55)",
+              "0 0 18px 6px rgb(var(--accent) / 0.7), inset 0 0 12px rgb(var(--sky-star) / 0.55)",
           }}
           animate={reduceMotion ? undefined : { scale: [1, 1.08, 1] }}
           transition={reduceMotion ? undefined : { duration: 2.8, repeat: Infinity, ease: "easeInOut" }}

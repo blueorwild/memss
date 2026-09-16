@@ -321,7 +321,7 @@ ai_try/
 
 > A（Phase 2 Step 6）已完成；B/C/D（部署与上线）在另一台机器上做。
 > 范围已裁剪：**E2 / E3 / E7 / E8 不做**（每图 caption、多音乐、批量导入、精灵形象与语音）；命名与 favicon/OG 等视觉附件留待单独阶段。
-> 执行顺序：**E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9**（E9 全局改色放最后，避免与前面反复冲突）。
+> 执行顺序：**E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9 ✅**（E 打磨全部完成）。
 
 ### E1 分类树重命名 / 移动 ✅ 已完成
 - `PATCH /api/categories/[id]`（body `{name?, parentId?}`），校验五件套：根「地球」不可改、目标父级存在且非自身、**防环**（目标父级不得落在自身子树内）、**深度**（`depth(新父) + 子树高度 ≤ 5`）、目标同级重名。移动到新父级时追加到同级末尾（`sortOrder`）。
@@ -346,7 +346,9 @@ ai_try/
 - 验证：桌面 1440 —— 打开后 `transform: matrix(1,0,0,1,0,0)`、计数 `1 / 2`、`z-index: 85`；空格不触发播放、←/→ 切图；滚轮缩放 `scale 2.23`（带光标锚点 translate）；拖动平移生效且不误关；双击复位为 1；点图片外留白关闭且 URL 不变；Esc 关闭不返回上级。移动 375（触摸）—— 单击打开铺满 375×667、双指捏合 `scale 3.1`、放大态单指拖动仍打开、双击复位、未放大左滑切到 `2 / 2`、Esc 关闭且 URL 不变；无控制台报错。
 - 附带修复：上传/编辑表单的日期输入补 `[color-scheme:dark]`，日历图标与搜索框一致显示为白色（原先在暗色下几乎不可见）。
 
-### E9 主题色 token 化 + 调色 —— 待做
-- **已定**：token 化 + 调色；**不做浅色模式**（dark-only，删 `prefers-color-scheme` 死代码）；CTA 用**方案 A**（`indigo-500` → `--accent-deep`）；**双强调色语义**——冷蓝 = 交互/导航，暖金 = 时间/回忆；**基色 `#05060a` 不变**；星云**加强到可见**（现两团 alpha 仅 `0.18/0.14`，实测≈不可见 → 提到 `~0.35/~0.28` 并补一团）。
-- token 集（CSS 变量为唯一来源）：`--sky-void #05060a`、`--sky-veil #070a14`、`--sky-panel #0b0f18`、`--sky-star 220 235 255`、`--sky-beam 150 180 255`、`--accent #7cc4ff`、`--accent-deep #2f7fd0`、`--warm #fff3d8`、`--warm-glow 255 238 180`、`--ok #34d399`；配 Tailwind v4 `@theme inline` 映射。
-- canvas（`StarBackground`）与 SVG（`TimelineRail` 的 `stopColor`）读不到 Tailwind 类 → `src/lib/theme.ts` 的 `readTheme()` 从 `getComputedStyle` 取值，避免变量与 JS 常量两份。
+### E9 主题色 token 化 + 调色 ✅ 已完成
+- **token 唯一来源**：`src/app/globals.css` 的 `:root` 定义 `--sky-void/--sky-veil/--sky-panel`（底色三层）、`--sky-nebula-1/2/3`（星云）、`--sky-star/--sky-beam`（星点/光带）、`--accent/--accent-deep`（星光蓝与深一档）、`--warm/--warm-glow`（暖金）、`--ok`。**颜色一律写成空格分隔的 RGB 分量**，于是 CSS / 内联样式 / SVG 都能用 `rgb(var(--x) / <alpha>)` 叠透明度；配 `@theme inline` 映射出 `bg-void`、`bg-panel/95`、`bg-veil`、`text-accent`、`bg-accent-deep`、`text-warm`、`text-ok`、`border-accent` 等工具类。
+- **调色**：① 星云从「理论存在」（alpha 0.18/0.14，实测近乎不可见）**加强到可感知**——alpha 0.35/0.28 + 补第三团冷青（0.22），渐变终点用同色 0 透明度避免过渡发灰；底色 `#05060a` **不变**。② CTA（原 Tailwind `indigo-500`，共 11 处）统一为 `--accent-deep #2f7fd0`，与 `--accent #7cc4ff` 同族（`Sprite` 的球体/拖尾/星尘也改走 `--accent`）。③ 固化**双强调色语义**：冷蓝 = 交互/导航，暖金 = 时间/回忆（`TimelineRail` 的日期点与年份、光带走 `--sky-beam`）。
+- **JS 侧**：新增 `src/lib/theme.ts` 的 `readTheme()` / `rgba()`（canvas 拿不到 CSS 类，仅 `StarBackground` 的星点用），带一份与 CSS 一致的兜底值；`layout.tsx` 的 `themeColor` 用导出的 `SKY_VOID_HEX`。
+- **dark-only**：删除 `prefers-color-scheme` 死代码，`--background` 直接指向 `--sky-void`。
+- 验证：token 计算值正确（`--accent` = `124 196 255` 等）；星云层 `background-image` 三团渐变到位；`bg-accent-deep/80` 的 CTA 计算结果换算回 sRGB 即 `#2f7fd0`；`TimelineRail` 的 SVG `style={{ stopColor: "rgb(var(--sky-beam) / …)" }}` 计算值 `rgba(150,180,255,…)`；详情页底色 `rgb(5,6,10)`；桌面 1440 与移动 375 各页无横向滚动/溢出、无控制台报错（详情页动画期间 `scrollWidth` 短暂 +3px 是 `memoryIn` 的 `scale(1.04)` 造成，动画结束后归零，改动前即如此）。

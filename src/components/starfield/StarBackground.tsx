@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { rgba, readTheme } from "@/lib/theme";
 import { useSpriteStore } from "@/store/sprite";
 
 type Star = { x: number; y: number; z: number; r: number; tw: number };
@@ -24,6 +25,8 @@ export default function StarBackground() {
     const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.5 : 2);
     // 星数上限：窄屏下调（手机面积本就小，主要为防大屏手机/平板过量）
     const starCap = narrow ? 220 : 420;
+    // 星点颜色取自主题 token（canvas 拿不到 CSS 类）
+    const starColor = readTheme().star;
 
     let w = 0;
     let h = 0;
@@ -62,7 +65,7 @@ export default function StarBackground() {
         const alpha = reduceMotion ? 0.7 : 0.35 + 0.65 * Math.abs(Math.sin(t / 1400 + s.tw));
         ctx!.beginPath();
         ctx!.arc(px, py, s.r * s.z, 0, Math.PI * 2);
-        ctx!.fillStyle = `rgba(220,235,255,${alpha * s.z})`;
+        ctx!.fillStyle = rgba(starColor, alpha * s.z);
         ctx!.fill();
       }
     }
@@ -114,8 +117,13 @@ export default function StarBackground() {
       <div
         className="pointer-events-none fixed inset-0 -z-20"
         style={{
+          // 星云：三团柔和径向渐变（冷蓝 / 暖紫 / 冷青）+ 底色。
+          // 渐变终点用「同色 0 透明度」而非 transparent，避免过渡发灰。
           background:
-            "radial-gradient(60% 50% at 30% 20%, rgba(70,90,160,0.18), transparent 70%), radial-gradient(50% 40% at 75% 70%, rgba(120,80,170,0.14), transparent 70%), #05060a",
+            "radial-gradient(60% 50% at 30% 20%, rgb(var(--sky-nebula-1) / 0.35), rgb(var(--sky-nebula-1) / 0) 70%)," +
+            "radial-gradient(50% 40% at 75% 70%, rgb(var(--sky-nebula-2) / 0.28), rgb(var(--sky-nebula-2) / 0) 70%)," +
+            "radial-gradient(45% 38% at 12% 82%, rgb(var(--sky-nebula-3) / 0.22), rgb(var(--sky-nebula-3) / 0) 72%)," +
+            "var(--sky-void)",
         }}
       />
       <canvas ref={ref} className="pointer-events-none fixed inset-0 -z-10 h-full w-full" />

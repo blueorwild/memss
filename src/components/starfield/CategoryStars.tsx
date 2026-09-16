@@ -80,7 +80,7 @@ export default function CategoryStars({
                     style={{
                       width: p.size,
                       height: p.size,
-                      boxShadow: "0 0 5px 1.5px rgba(255,255,255,0.85)",
+                      boxShadow: "0 0 5px 1.5px rgb(var(--sky-star) / 0.85)",
                     }}
                     animate={{
                       x: [0, p.dx],
@@ -103,7 +103,7 @@ export default function CategoryStars({
               <motion.span
                 className={
                   hasMemories
-                    ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgba(147,197,253,0.55)]"
+                    ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]"
                     : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
                 }
                 animate={hasMemories ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}

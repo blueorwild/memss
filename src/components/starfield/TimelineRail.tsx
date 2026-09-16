@@ -81,9 +81,9 @@ export default function TimelineRail({
       >
         <defs>
           <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(150,180,255,0)" />
-            <stop offset="50%" stopColor="rgba(150,180,255,0.72)" />
-            <stop offset="100%" stopColor="rgba(150,180,255,0)" />
+            <stop offset="0%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
+            <stop offset="50%" style={{ stopColor: "rgb(var(--sky-beam) / 0.72)" }} />
+            <stop offset="100%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
           </linearGradient>
         </defs>
         <polyline
@@ -92,7 +92,7 @@ export default function TimelineRail({
           stroke="url(#railGrad)"
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
-          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgba(150,180,255,0.55))" }}
+          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgb(var(--sky-beam) / 0.55))" }}
         />
       </svg>
 
@@ -129,7 +129,7 @@ export default function TimelineRail({
               height: 46,
               transform: "translate(-50%, -50%)",
               background:
-                "radial-gradient(circle, rgba(255,240,190,0.3) 0%, rgba(255,240,190,0) 70%)",
+                "radial-gradient(circle, rgb(var(--warm-glow) / 0.3) 0%, rgb(var(--warm-glow) / 0) 70%)",
               filter: "blur(6px)",
             }}
           />
@@ -140,9 +140,9 @@ export default function TimelineRail({
               height: 30,
               transform: "translate(-50%, -50%)",
               background:
-                "linear-gradient(to bottom, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+                "linear-gradient(to bottom, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
               filter: "blur(1px)",
-              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+              boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
           <div
@@ -152,9 +152,9 @@ export default function TimelineRail({
               height: 3,
               transform: "translate(-50%, -50%)",
               background:
-                "linear-gradient(to right, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+                "linear-gradient(to right, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
               filter: "blur(1px)",
-              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+              boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
           <div
@@ -163,7 +163,7 @@ export default function TimelineRail({
               width: 4,
               height: 4,
               transform: "translate(-50%, -50%)",
-              background: "#fffaf0",
+              background: "rgb(var(--warm))",
             }}
           />
         </motion.div>
@@ -224,9 +224,9 @@ export function VerticalTimelineRail({
       >
         <defs>
           <linearGradient id="vRailGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(150,180,255,0)" />
-            <stop offset="50%" stopColor="rgba(150,180,255,0.72)" />
-            <stop offset="100%" stopColor="rgba(150,180,255,0)" />
+            <stop offset="0%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
+            <stop offset="50%" style={{ stopColor: "rgb(var(--sky-beam) / 0.72)" }} />
+            <stop offset="100%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
           </linearGradient>
         </defs>
         <polyline
@@ -235,7 +235,7 @@ export function VerticalTimelineRail({
           stroke="url(#vRailGrad)"
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
-          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgba(150,180,255,0.55))" }}
+          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgb(var(--sky-beam) / 0.55))" }}
         />
       </svg>
 
@@ -270,7 +270,7 @@ export function VerticalTimelineRail({
               height: 40,
               transform: "translate(-50%, -50%)",
               background:
-                "radial-gradient(circle, rgba(255,240,190,0.3) 0%, rgba(255,240,190,0) 70%)",
+                "radial-gradient(circle, rgb(var(--warm-glow) / 0.3) 0%, rgb(var(--warm-glow) / 0) 70%)",
               filter: "blur(6px)",
             }}
           />
@@ -282,9 +282,9 @@ export function VerticalTimelineRail({
               height: 18,
               transform: "translate(-50%, -50%)",
               background:
-                "linear-gradient(to bottom, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+                "linear-gradient(to bottom, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
               filter: "blur(1px)",
-              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+              boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
           {/* 横长 */}
@@ -295,9 +295,9 @@ export function VerticalTimelineRail({
               height: 3,
               transform: "translate(-50%, -50%)",
               background:
-                "linear-gradient(to right, rgba(255,249,224,0.15), rgba(255,249,224,1), rgba(255,249,224,0.15))",
+                "linear-gradient(to right, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
               filter: "blur(1px)",
-              boxShadow: "0 0 8px rgba(255,238,180,0.9), 0 0 18px rgba(255,238,180,0.5)",
+              boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
           <div
@@ -306,7 +306,7 @@ export function VerticalTimelineRail({
               width: 4,
               height: 4,
               transform: "translate(-50%, -50%)",
-              background: "#fffaf0",
+              background: "rgb(var(--warm))",
             }}
           />
         </motion.div>

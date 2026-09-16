@@ -10,7 +10,7 @@ const inputCls =
 const btnCls =
   "rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/80 transition-colors hover:bg-white/10";
 const primaryCls =
-  "rounded-full bg-indigo-500/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40";
+  "rounded-full bg-accent-deep/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-accent-deep disabled:opacity-40";
 
 /** 类别完整路径（含根「地球」），用于父级下拉的显示文案 */
 function pathLabel(id: string, byId: Map<string, Category>): string {

@@ -13,7 +13,7 @@ const inputCls =
 const btnCls =
   "rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/80 transition-colors hover:bg-white/10";
 const primaryCls =
-  "rounded-full bg-indigo-500/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-indigo-500";
+  "rounded-full bg-accent-deep/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-accent-deep";
 
 /** 计算某类别深度（含自身） */
 function depthOf(id: string, byId: Map<string, Category>): number {

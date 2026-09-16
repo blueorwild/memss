@@ -195,7 +195,7 @@ export default function StarfieldPage({
           <>
             <motion.div
               key="fog-bg"
-              className="pointer-events-none fixed inset-0 z-40 bg-[#070a14]"
+              className="pointer-events-none fixed inset-0 z-40 bg-veil"
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.1 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
@@ -212,7 +212,7 @@ export default function StarfieldPage({
                 height: 340,
                 borderRadius: "50%",
                 background:
-                  "radial-gradient(circle, rgba(215,230,255,0.45) 0%, rgba(150,185,255,0.22) 26%, rgba(120,160,255,0.08) 48%, rgba(120,160,255,0.02) 66%, rgba(120,160,255,0) 82%)",
+                  "radial-gradient(circle, rgb(var(--sky-star) / 0.45) 0%, rgb(var(--sky-beam) / 0.22) 26%, rgb(var(--sky-beam) / 0.08) 48%, rgb(var(--sky-beam) / 0.02) 66%, rgb(var(--sky-beam) / 0) 82%)",
                 willChange: "transform, opacity",
                 transform: "translateZ(0)",
               }}
@@ -233,7 +233,7 @@ export default function StarfieldPage({
                   height: s.size,
                   borderRadius: "50%",
                   background:
-                    "radial-gradient(circle, rgba(170,200,255,0.22) 0%, rgba(150,185,255,0.08) 40%, rgba(120,160,255,0) 72%)",
+                    "radial-gradient(circle, rgb(var(--sky-star) / 0.22) 0%, rgb(var(--sky-beam) / 0.08) 40%, rgb(var(--sky-beam) / 0) 72%)",
                   willChange: "transform, opacity",
                   transform: "translateZ(0)",
                 }}

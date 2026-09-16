@@ -48,7 +48,7 @@
 - P4 已完成：见下方「P4 Agent 能力（已完成）」。
 - Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–6 ✅，见文末两节。
 - 细节打磨（回忆编辑/裁剪/标题限字/历史批量删除确认/面板拖动/快捷键守卫）✅，见文末「细节打磨」节。
-- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
+- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9 ✅**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
 
 ## 经验与坑
 
@@ -169,7 +169,7 @@
 - **`MemoryScene`**：reduce-motion 下进退场**直接切换**——`motion-reduce:animate-none` + `handleBack` 里直接 `router.push`（**不能只依赖 `animationend`，动画被禁用时不会触发，会卡住不返回**）。
 - **验证口径**：`prefers-reduced-motion` 用 CDP `Emulation.setEmulatedMedia` 切换；判定星空是否在动用「对 canvas `getImageData` 求校验和，间隔采样两次是否相等」。窄屏 dpr 看 `canvas.width / clientWidth`。全局快捷键/动画名看 `getComputedStyle().animationName`。
 - **结果**：窄屏 dpr 1.5、桌面 2；reduce 静态 / normal 闪烁；`5/7/100 段` 卡片均 3:2；100 段仅渲染 10–12 张；1440/375 无横向溢出；控制台无报错；窄屏裁剪弹窗 353×391 适配 375。
-- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9 ✅**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
 
 ## 搜索（原 E5+E6，已完成）
 - **一套内核两个入口**：`src/lib/memory-search.ts`（`collectMemories` / `buildCategoryPaths` / `searchMemories`）。**Agent 的 `searchMemories` 工具与 `GET /api/memories/search` 调同一个函数**——否则「对话能搜到、面板搜不到」这类漂移迟早出现。默认 30 条、上限 100。
@@ -193,3 +193,11 @@
 - **与页面快捷键的冲突靠约定解决**：Lightbox 容器加 `role="dialog"`，`shouldIgnorePageShortcut` 会让详情页的 ←/→ 切图、空格播放、Esc 返回全部失效，改由查看器自己处理（实测 Esc 关闭后 URL 不变，不会误返回上级）。
 - **踩坑（重要）：触摸点击会在 `pointerup` 之后再补发一次「合成 click」**，落点若在该时刻新出现的元素上，会立刻触发它的 onClick——表现为「点开查看器又瞬间关闭 = 点了没反应」。解决：组件记录打开时刻，`< 400ms` 的空白点击一律忽略。（排查手段：给容器挂监听收集 pointerdown/pointerup/click 事件序列，会看到只有 pointerup、合成 click 落到了新挂载的遮罩上。）
 - 顺便修的细节：控件在**亮色图片**上会看不清 → 计数/提示用 `bg-black/40 backdrop-blur` 小胶囊、按钮改 `bg-black/40`；上传/编辑表单的 `<input type="date">` 补 `[color-scheme:dark]`，日历图标才与搜索框一致显示为白色（默认在暗色下几乎不可见）。
+
+## E9 主题色 token 化 + 调色（已完成，E 打磨全部收尾）
+- **约定：颜色一律在 `src/app/globals.css` 的 `:root` 里以「空格分隔的 RGB 分量」定义**（`--accent: 124 196 255`），不要写 hex。这样 CSS / React 内联样式 / SVG 都能用 `rgb(var(--accent) / 0.35)` 叠透明度；若存 hex 就只能在 CSS 里用，透明度得再写一套 rgba 字面量。`@theme inline` 里用 `--color-x: rgb(var(--x))` 映射成 Tailwind 类（`bg-accent`、`bg-accent-deep/80`、`text-warm`、`border-accent`…）。
+- **双强调色语义（已固化）**：冷蓝（`--accent` / `--accent-deep`）= 交互与导航（按钮、选中、小精灵）；暖金（`--warm` / `--warm-glow`）= 时间与回忆（日期点、时间轴）。新 UI 选色先按这个语义，别再引入第三种主色（原先 CTA 是 Tailwind `indigo-500`，与精灵的 `#7cc4ff` 不同族，已统一）。
+- **CSS 是唯一来源，JS 只是读取**：canvas 拿不到 CSS 类 → `src/lib/theme.ts` 的 `readTheme()`（`getComputedStyle` 读同一批变量）+ `rgba(token, a)`，`FALLBACK` 仅作读取失败的兜底。**内联样式里不要走它**，直接写 `rgb(var(--x) / a)` 更简单（`Sprite` 的球体/拖尾就是这样）。
+- **SVG 的 `stopColor` 属性**用 JSX `style={{ stopColor: "rgb(var(--sky-beam) / 0.72)" }}`（presentation 属性对 CSS Color 4 语法支持不稳，放 style 里稳）。
+- **暗色唯一形态**：删掉了 `prefers-color-scheme` 分支，`--background` 直接指向 `--sky-void`。星空隐喻下不做浅色模式。
+- 星云原来是两团 alpha `0.18/0.14` 的径向渐变，叠在近黑底上**实测几乎不可见**（这也是「明明写了星云却看不到」的原因）。加强时把渐变终点写成「同色 0 透明度」而不是 `transparent`，否则中间会发灰。

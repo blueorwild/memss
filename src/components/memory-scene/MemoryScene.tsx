@@ -50,7 +50,7 @@ function PlayButton({
         className="pointer-events-none absolute inset-0 rounded-full"
         style={{
           background:
-            "radial-gradient(circle, rgba(160,215,255,0.45) 0%, rgba(124,196,255,0) 70%)",
+            "radial-gradient(circle, rgb(var(--sky-star) / 0.45) 0%, rgb(var(--accent) / 0) 70%)",
         }}
         animate={
           playing
@@ -244,7 +244,7 @@ export default function MemoryScene({
 
   return (
     <div
-      className={`relative flex min-h-dvh flex-col bg-neutral-950 text-white motion-reduce:animate-none ${
+      className={`relative flex min-h-dvh flex-col bg-void text-white motion-reduce:animate-none ${
         leaving
           ? "animate-[memoryOut_0.26s_ease-out_forwards]"
           : "animate-[memoryIn_0.2s_ease-out_both]"
@@ -266,7 +266,7 @@ export default function MemoryScene({
             )}
             className="h-full w-full object-cover opacity-40 blur-xs"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-void via-void/70 to-transparent" />
         </div>
       )}
 
@@ -426,7 +426,7 @@ export default function MemoryScene({
       )}
 
       {/* 窄屏固定底栏：切图按钮在左右两侧，播放按钮居中（同一水平线） */}
-      <div className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 items-center border-t border-white/10 bg-neutral-950/80 px-4 pt-3 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur sm:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 items-center border-t border-white/10 bg-void/80 px-4 pt-3 pb-[calc(var(--safe-bottom)+10px)] backdrop-blur sm:hidden">
         {images.length > 1 ? (
           <button
             type="button"

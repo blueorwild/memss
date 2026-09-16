@@ -100,7 +100,7 @@ export default function HistoryPanel({
               type="checkbox"
               checked={selected.has(c.id)}
               onChange={() => toggle(c.id)}
-              className="size-5 shrink-0 accent-indigo-400 sm:size-3.5"
+              className="size-5 shrink-0 accent-accent-deep sm:size-3.5"
             />
             <button
               type="button"
