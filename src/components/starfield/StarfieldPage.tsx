@@ -16,6 +16,7 @@ import { shouldIgnorePageShortcut } from "@/lib/dom";
 import { useSpriteStore } from "@/store/sprite";
 import StarBackground from "./StarBackground";
 import Breadcrumb from "./Breadcrumb";
+import CategoryEditDialog from "./CategoryEditDialog";
 import CategoryStars from "./CategoryStars";
 import MemoryCylinder from "./MemoryCylinder";
 
@@ -38,6 +39,7 @@ export default function StarfieldPage({
   const navRequest = useSpriteStore((s) => s.navRequest);
   const clearNavRequest = useSpriteStore((s) => s.clearNavRequest);
   const [zoom, setZoom] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [delError, setDelError] = useState<string | null>(null);
@@ -139,13 +141,22 @@ export default function StarfieldPage({
             )}
           </div>
           {current.parentId && (
-            <button
-              type="button"
-              onClick={() => setDelOpen(true)}
-              className="shrink-0 text-sm text-red-300/80 transition-colors hover:text-red-300"
-            >
-              遗忘
-            </button>
+            <div className="flex shrink-0 items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="text-sm text-white/70 transition-colors hover:text-white"
+              >
+                编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => setDelOpen(true)}
+                className="text-sm text-red-300/80 transition-colors hover:text-red-300"
+              >
+                遗忘
+              </button>
+            </div>
           )}
         </header>
 
@@ -234,6 +245,19 @@ export default function StarfieldPage({
           </>
         )}
       </AnimatePresence>
+
+      {/* 编辑此分类：改名 / 移动到其它父级（保存后刷新路由） */}
+      <CategoryEditDialog
+        current={current}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSaved={(newPath) => {
+          setEditOpen(false);
+          // 移动后当前 URL 失效：跳到新的完整路径；仅改名则原地刷新
+          if (newPath) router.push(`/star/${newPath.join("/")}`);
+          else router.refresh();
+        }}
+      />
 
       {/* 删除此分类：确认弹层（有回忆时可选「迁移」或「一并遗忘」） */}
       <Dialog open={delOpen} onOpenChange={setDelOpen}>

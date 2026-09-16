@@ -48,7 +48,7 @@
 - P4 已完成：见下方「P4 Agent 能力（已完成）」。
 - Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–6 ✅，见文末两节。
 - 细节打磨（回忆编辑/裁剪/标题限字/历史批量删除确认/面板拖动/快捷键守卫）✅，见文末「细节打磨」节。
-- **下一步**：E 打磨（建议顺序 E2 caption → E1 分类树重命名/移动 → E3 多音乐 → E5 功能按钮 → E4 图片放大 → 其余，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
+- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
 
 ## 经验与坑
 
@@ -169,5 +169,13 @@
 - **`MemoryScene`**：reduce-motion 下进退场**直接切换**——`motion-reduce:animate-none` + `handleBack` 里直接 `router.push`（**不能只依赖 `animationend`，动画被禁用时不会触发，会卡住不返回**）。
 - **验证口径**：`prefers-reduced-motion` 用 CDP `Emulation.setEmulatedMedia` 切换；判定星空是否在动用「对 canvas `getImageData` 求校验和，间隔采样两次是否相等」。窄屏 dpr 看 `canvas.width / clientWidth`。全局快捷键/动画名看 `getComputedStyle().animationName`。
 - **结果**：窄屏 dpr 1.5、桌面 2；reduce 静态 / normal 闪烁；`5/7/100 段` 卡片均 3:2；100 段仅渲染 10–12 张；1440/375 无横向溢出；控制台无报错；窄屏裁剪弹窗 353×391 适配 375。
-- **下一步（E 打磨）**：建议 E2 caption → E1 分类树重命名/移动 → E3 多音乐 → E5 功能按钮 → E4 图片放大 → 其余，详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+
+## E1 分类树重命名 / 移动（已完成）
+- `PATCH /api/categories/[id]`（body `{name?, parentId?}`）五道校验：根「地球」不可改 / 目标父级存在且非自身 / **防环**（目标父级 ∈ 自身子树 → 400）/ **深度**（`depth(新父) + 子树高度 ≤ 5`）/ 目标**同级重名** → 409。移到新父级时 `sortOrder` 追加到同级末尾。
+- `updateCategory` + **`resyncSubtreeLocation`**：`location` 由类别路径派生（去掉根「地球」），改名/移动后**必须重算子树内全部回忆的 location**，否则详情页与面包屑不一致。实测父级改名也生效（`E1R / E1S` → 父改名 → `E1R-改名 / E1S`）。
+- UI `CategoryEditDialog`（复用 `dialog.tsx` + `combobox.tsx`）：父级候选**排除自身子树**（防环在 UI 侧也挡一道）。
+- **踩坑：URL 用类别 id 组成**（`/star/[...path]` 的 path 是 id 数组），所以**移动父级后当前 URL 失效**（面包屑与 `← 返回` 会错）。解决：对话框保存后由客户端用已拉取的类别表拼出新完整路径并 `router.push`；仅改名则 `router.refresh()`（改名不改 URL）。
+- **踩坑（重要约定）：不要在 Radix Dialog 内使用 Portal 型 `Popover`/`Combobox`**。实测三重问题：① `PopoverContent` 的 `z-[80]` 低于 `DialogContent` 的 `z-[91]`，浮层被弹层盖住点不到（`elementFromPoint` 在候选项上返回的是弹层）；② Radix Dialog modal 会给 `body` 设 `pointer-events: none`（wrapper 继承 `none`）；③ 焦点陷阱与 cmdk 输入框冲突（`new-category-dialog.tsx` 的注释早就写了这点）。**改用弹层内的「内联可折叠 cmdk 列表」**（见 `CategoryEditDialog`：按钮切换 `pickerOpen`，展开时在弹层内渲染 `Command` + `Command.Input` + `Command.List`，`max-h-52 overflow-y-auto overscroll-contain`）。列表较长时在标签上标注「（共 N 项）」，避免「看起来只有 4 项、其实还能滚」的错觉。
+- **验证教训：JS `.click()` 会绕过层叠顺序**——正是它让 E1 首轮 UI 测试「通过」却漏掉了下拉被遮挡的 bug。UI 验证必须用 CDP **真实坐标点击**（`Input.dispatchMouseEvent` 的 mousePressed/Released，移动端用 `Input.dispatchTouchEvent`），列表项不可见时先用 `mouseWheel` / touchMove 滚动到可视区再点；用 `document.elementFromPoint()` 断言某点是否真的命中目标元素（被遮挡时返回的是遮挡者）。
 

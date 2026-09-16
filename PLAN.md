@@ -317,18 +317,29 @@ ai_try/
 - **卡片比例统一为 3:2**：`CARD_NORMAL {200,133}`、`COMPACT {150,100}`、`TINY {120,80}`，与详情页一致，预览所见即所得。
 - **页面快捷键守卫**（`src/lib/dom.ts` 的 `shouldIgnorePageShortcut`）：焦点在输入控件内 / 有 `[role="dialog"]` / 小精灵面板打开时，`MemoryScene`（←/→ 切图、空格播放、Esc 返回）与 `StarfieldPage`（Esc 上级）不再抢占按键——否则在小精灵面板里输入时 ←/→ 无法移动光标、空格打不出、Esc 误返回。
 
-## 15. 后续打磨候选（E 计划，未开始）
+## 15. 后续打磨（E 计划）
 
-> A（Phase 2 Step 6）已完成；B/C/D（部署与上线）在另一台机器上做。以下为上线前后的可选打磨项，建议顺序 E2 → E1 → E3 → E5 → E4 → 其余。
+> A（Phase 2 Step 6）已完成；B/C/D（部署与上线）在另一台机器上做。
+> 范围已裁剪：**E2 / E3 / E7 / E8 不做**（每图 caption、多音乐、批量导入、精灵形象与语音）；命名与 favicon/OG 等视觉附件留待单独阶段。
+> 执行顺序：**E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E9 全局改色放最后，避免与前面反复冲突）。
 
-| # | 项 | 说明 | 工作量 |
-|---|---|---|---|
-| E1 | 分类树重命名 / 移动 | 现仅「遗忘」（删除级联）。加 `PATCH /api/categories/[id]`（改名、改父级；防环、同级重名校验）+ 星空页「编辑」弹层 | 小–中 |
-| E2 | 每图 caption 编辑 | `media.caption` 已存在（seed 有值但 UI 未暴露）；表单每图加说明输入，详情页显示 | 小 |
-| E3 | 一个回忆多首音乐 | 表结构已支持多条 `audio`；表单多音乐增删排序，详情页播放列表（现单曲 loop） | 中 |
-| E4 | 详情页图片放大查看 | 双击/双指缩放看图（注意与快捷键守卫、浏览器手势协调） | 小–中 |
-| E5 | 小精灵功能按钮扩展 | `ActionBar` 增「随机回忆 / 回到地球 / 导航到…」等 | 小 |
-| E6 | 搜索 / 筛选 UI | 对话之外给显式搜索入口（关键词 / 地点 / 日期） | 中 |
-| E7 | 批量导入 | 选目录按文件夹 / 日期自动建类别（File System Access API） | 大 |
-| E8 | 小精灵形象 / 动效、语音 | TTS/STT、形象设计 | 中大（偏设计） |
-| E9 | 主题色 / 正式命名 | 定色板与站名，落到 CSS 变量 | 小（需定风格） |
+### E1 分类树重命名 / 移动 ✅ 已完成
+- `PATCH /api/categories/[id]`（body `{name?, parentId?}`），校验五件套：根「地球」不可改、目标父级存在且非自身、**防环**（目标父级不得落在自身子树内）、**深度**（`depth(新父) + 子树高度 ≤ 5`）、目标同级重名。移动到新父级时追加到同级末尾（`sortOrder`）。
+- `src/lib/db/mutations.ts`：`updateCategory` + **`resyncSubtreeLocation`**——`location` 由类别路径派生（去掉根「地球」），改名/移动后必须重算**子树内全部回忆**的 `location`，否则详情页与面包屑不一致。
+- UI：`src/components/starfield/CategoryEditDialog.tsx`（复用 `ui/dialog.tsx`）；父级候选**排除自身子树**（UI 侧再挡一道防环）；星空页右上角新增「编辑」，位于「遗忘」左侧。父级选择用**弹层内联可折叠 cmdk 列表**而非 `Combobox`——Radix Dialog 内用 Portal 型 Popover 会被弹层盖住（`z-[80]` < `z-[91]`）、`body` 被设 `pointer-events:none`、且与焦点陷阱冲突（详见 `WORKBUDDY_MEMORY.md`）。**移动到新父级后 URL（按 id 组织）会失效 → 客户端算出新完整路径并 `router.push`**；仅改名则 `router.refresh()`。
+- 验证：用一次性测试类别覆盖改名 / 同级重名 409 / 防环 400 / 超深 400（含临界合法 5 级）/ 根类别 400 / 不存在 404 / 合法移动；API 实测 `location` 随父级与子树改名同步（`E1R / E1S-改名` → 改名父级后 `E1R-改名 / E1S-改名` → 移动后 `E1S-改名`）；UI（桌面 1440 + 移动 375）用 **CDP 真实坐标点击/触摸**确认入口、弹层、候选排除自身子树、**候选列表无 Portal 且命中测试通过（不被弹层遮挡）**、改名后 header 更新、移动后 URL 变为新路径、展开后弹层仍在视口内（375 下 345×566 ≤ 85dvh）且无控制台报错；真实数据回归无异常。（首轮 UI 测试因用 JS `.click()` 绕过层叠顺序漏掉了「下拉被弹层盖住」的 bug，已改用坐标点击复验。）
+
+### 搜索（原 E5 + E6）—— 待做
+- **一套内核两个入口**：把 `agent-tools.ts` 里的过滤逻辑抽到 `src/lib/memory-search.ts`（关键词匹配标题/描述/location、类别含子树、日期区间），Agent 工具与 `GET /api/memories/search` 共用，避免语义漂移。
+- `SpriteView` 加 `"search"`；`ActionBar` 加「搜索」；新 `SearchPanel`：关键词 + 类别 + 日期区间 + **纵向滚动列表**（复用共享 `MemoryListItem`），点击进详情；不设 3 条上限（默认 30 / 上限 100）。
+- 聊天卡片同步改用共享 `MemoryListItem`（**紧凑档**：缩略图 + 标题 + 日期，不含地点），`showMemories` 工具补 `cover`。
+- 与聊天搜索不冲突：两者只读同一份数据、同一份过滤逻辑；差别是聊天受「每批 3 张卡」限制且需 2 次 LLM 往返。
+
+### E4 详情页图片放大 —— 待做
+- 新 `ImageViewer`：详情主图单击 → 全屏 Lightbox（`object-contain` + 双指/滚轮/双击缩放 + 拖动平移 + Esc/点背景关闭）；复用 `lib/crop.ts` 的 clamp 思路；弹层带 `role="dialog"`，靠 `shouldIgnorePageShortcut` 保证 Esc 不误返回。
+- 注意与窄屏 swipe 切图的手势冲突（单击 vs 拖动阈值）。
+
+### E9 主题色 token 化 + 调色 —— 待做
+- **已定**：token 化 + 调色；**不做浅色模式**（dark-only，删 `prefers-color-scheme` 死代码）；CTA 用**方案 A**（`indigo-500` → `--accent-deep`）；**双强调色语义**——冷蓝 = 交互/导航，暖金 = 时间/回忆；**基色 `#05060a` 不变**；星云**加强到可见**（现两团 alpha 仅 `0.18/0.14`，实测≈不可见 → 提到 `~0.35/~0.28` 并补一团）。
+- token 集（CSS 变量为唯一来源）：`--sky-void #05060a`、`--sky-veil #070a14`、`--sky-panel #0b0f18`、`--sky-star 220 235 255`、`--sky-beam 150 180 255`、`--accent #7cc4ff`、`--accent-deep #2f7fd0`、`--warm #fff3d8`、`--warm-glow 255 238 180`、`--ok #34d399`；配 Tailwind v4 `@theme inline` 映射。
+- canvas（`StarBackground`）与 SVG（`TimelineRail` 的 `stopColor`）读不到 Tailwind 类 → `src/lib/theme.ts` 的 `readTheme()` 从 `getComputedStyle` 取值，避免变量与 JS 常量两份。

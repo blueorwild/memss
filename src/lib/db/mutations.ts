@@ -36,6 +36,57 @@ export function collectSubtree(rootId: string): string[] {
   return ids;
 }
 
+/** 更新类别（改名 / 改父级 / 重排）；调用方需先完成防环、深度与重名校验 */
+export function updateCategory(
+  id: string,
+  patch: { name?: string; parentId?: string; sortOrder?: number },
+): void {
+  const set: { name?: string; parentId?: string; sortOrder?: number } = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.parentId !== undefined) set.parentId = patch.parentId;
+  if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
+  // 空 patch 会被 drizzle 拒绝，直接跳过
+  if (Object.keys(set).length === 0) return;
+  db.update(categories).set(set).where(eq(categories.id, id)).run();
+}
+
+/**
+ * 重算某类别子树内所有回忆的 location。
+ * location 由类别路径派生（去掉根「地球」），改名 / 移动后必须重算，否则与面包屑不一致。
+ * 返回受影响的回忆条数。
+ */
+export function resyncSubtreeLocation(rootId: string): number {
+  const subtreeIds = collectSubtree(rootId);
+  if (subtreeIds.length === 0) return 0;
+  const mems = db
+    .select()
+    .from(memories)
+    .where(inArray(memories.categoryId, subtreeIds))
+    .all();
+  if (mems.length === 0) return 0;
+
+  // 一次性载入类别表，避免逐条查路径
+  const all = db.select().from(categories).all();
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const locationOf = (categoryId: string): string | null => {
+    const names: string[] = [];
+    let cur = byId.get(categoryId);
+    while (cur) {
+      if (cur.name !== "地球") names.unshift(cur.name);
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return names.length > 0 ? names.join(" / ") : null;
+  };
+
+  for (const m of mems) {
+    db.update(memories)
+      .set({ location: locationOf(m.categoryId) })
+      .where(eq(memories.id, m.id))
+      .run();
+  }
+  return mems.length;
+}
+
 /** 删除一条回忆及其媒体记录与物理文件；文件缺失不影响 */
 export async function deleteMemoryById(id: string): Promise<boolean> {
   const memory = db.select().from(memories).where(eq(memories.id, id)).get();
