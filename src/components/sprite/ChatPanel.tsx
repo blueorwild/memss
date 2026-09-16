@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { PROVIDER_PRESETS } from "@/lib/providers";
+import MemoryListItem from "@/components/memory/MemoryListItem";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
 import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
 
-/** 检索结果中的记忆条目 */
-type MemoryCardItem = { id: string; title: string; date: string | null };
+/** 检索结果中的记忆条目（含封面与地点，卡片与搜索面板共用渲染） */
+type MemoryCardItem = {
+  id: string;
+  title: string;
+  date: string | null;
+  location?: string | null;
+  cover?: { path: string; focalX: number; focalY: number; cropScale: number } | null;
+};
 
 type Msg = {
   role: "user" | "assistant";
@@ -35,6 +42,7 @@ const TOOL_LABEL: Record<string, string> = {
   showMemories: "正在整理回忆…",
   navigateToCategory: "正在前往…",
   uploadMemory: "正在打开上传面板…",
+  openSearch: "正在打开搜索面板…",
   openEditMemory: "正在打开编辑面板…",
   moveMemory: "正在迁移…",
   forgetMemory: "正在遗忘…",
@@ -178,6 +186,8 @@ export default function ChatPanel() {
       useSpriteStore.getState().openUpload(action.draft);
     } else if (action.type === "openEdit") {
       useSpriteStore.getState().openEdit(action.memoryId);
+    } else if (action.type === "openSearch") {
+      useSpriteStore.getState().openSearch({ query: action.query, categoryId: action.categoryId });
     } else if (action.type === "moved") {
       // 归属变更：刷新当前页（详情页的面包屑与地点随之更新）
       router.refresh();
@@ -387,19 +397,16 @@ export default function ChatPanel() {
             {m.role === "assistant" && m.cards && m.cards.length > 0 && (
               <div className="mt-2 space-y-1.5">
                 {m.cards.map((c) => (
-                  <button
+                  <MemoryListItem
                     key={c.id}
-                    type="button"
+                    item={c}
+                    variant="compact"
                     onClick={() => handleAction({ type: "navigate", path: `/memory/${c.id}` })}
-                    className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white sm:text-xs"
-                  >
-                    <span className="truncate">{c.title}</span>
-                    {c.date && <span className="shrink-0 text-white/35">{c.date}</span>}
-                  </button>
+                  />
                 ))}
                 {(m.cardsTotal ?? 0) > m.cards.length && (
                   <p className="text-[11px] text-white/35">
-                    共 {m.cardsTotal} 条，想看其余的可以说「继续」
+                    共 {m.cardsTotal} 条，想看其余的可以说「继续」或点上方「搜索」
                   </p>
                 )}
               </div>

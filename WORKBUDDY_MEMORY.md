@@ -48,7 +48,7 @@
 - P4 已完成：见下方「P4 Agent 能力（已完成）」。
 - Phase 1（Agent 准确性与体验）✅、Phase 2（移动端适配）Step 1–6 ✅，见文末两节。
 - 细节打磨（回忆编辑/裁剪/标题限字/历史批量删除确认/面板拖动/快捷键守卫）✅，见文末「细节打磨」节。
-- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
+- **下一步**：E 打磨，范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 → E9**（E2/E3/E7/E8 **不做**；命名与视觉附件留待单独阶段，见 `PLAN.md §15`）；B/C/D 部署与上线由用户在另一台机器完成。
 
 ## 经验与坑
 
@@ -169,7 +169,14 @@
 - **`MemoryScene`**：reduce-motion 下进退场**直接切换**——`motion-reduce:animate-none` + `handleBack` 里直接 `router.push`（**不能只依赖 `animationend`，动画被禁用时不会触发，会卡住不返回**）。
 - **验证口径**：`prefers-reduced-motion` 用 CDP `Emulation.setEmulatedMedia` 切换；判定星空是否在动用「对 canvas `getImageData` 求校验和，间隔采样两次是否相等」。窄屏 dpr 看 `canvas.width / clientWidth`。全局快捷键/动画名看 `getComputedStyle().animationName`。
 - **结果**：窄屏 dpr 1.5、桌面 2；reduce 静态 / normal 闪烁；`5/7/100 段` 卡片均 3:2；100 段仅渲染 10–12 张；1440/375 无横向溢出；控制台无报错；窄屏裁剪弹窗 353×391 适配 375。
-- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+- **下一步（E 打磨）**：范围已裁剪为 **E1 ✅ → 搜索(原 E5+E6) ✅ → E4 → E9**（E2 每图 caption、E3 多音乐、E7 批量导入、E8 精灵形象/语音均**不做**；命名与 favicon/OG 留待单独阶段），详见 `PLAN.md §15`。**B/C/D（部署改造、Windows+Cloudflare、维护）由用户在另一台机器执行。**
+
+## 搜索（原 E5+E6，已完成）
+- **一套内核两个入口**：`src/lib/memory-search.ts`（`collectMemories` / `buildCategoryPaths` / `searchMemories`）。**Agent 的 `searchMemories` 工具与 `GET /api/memories/search` 调同一个函数**——否则「对话能搜到、面板搜不到」这类漂移迟早出现。默认 30 条、上限 100。
+- `queries.ts` 抽出 **`attachCovers(mems)`**（`listMemoryCards` 复用）：显式 `coverMediaId` → 失效回退首图 → 无图 null。新增「带封面列表」的场景一律复用它，别重写。
+- **共享卡片** `src/components/memory/MemoryListItem.tsx`：`variant="compact"`（对话，无封面时**不渲染缩略图占位**，兼容历史消息）与 `"full"`（搜索面板）共用；`showMemories` 工具补 `cover`/`location`/`category`，`agent/route.ts` 的 `CardItem` 同步扩展（消息 `cards` 是 JSON，旧数据缺字段要能降级）。
+- `ActionBar` 标签用**短词**（上传/搜索/对话/设置）：窄屏 4 个按钮时「上传回忆」会换行，把 ActionBar 撑成两行。
+- **验证教训（补充）**：真实坐标点击时注意 **Next.js 开发指示器（`NEXTJS-PORTAL`）会盖住右下角的悬浮球**，`elementFromPoint` 命中的是它而非球。做法：采样球体上的多个候选点（中心 / 左上 / 上 / 左…），用 `elementFromPoint().closest('button[aria-label="小精灵"]')` 找到真正可点的那个再点击。生产环境无此问题。
 
 ## E1 分类树重命名 / 移动（已完成）
 - `PATCH /api/categories/[id]`（body `{name?, parentId?}`）五道校验：根「地球」不可改 / 目标父级存在且非自身 / **防环**（目标父级 ∈ 自身子树 → 400）/ **深度**（`depth(新父) + 子树高度 ≤ 5`）/ 目标**同级重名** → 409。移到新父级时 `sortOrder` 追加到同级末尾。

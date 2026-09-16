@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import {
+  attachCovers,
   getCategory,
   getCategoryPath,
   getSubtreeMemoryCounts,
@@ -8,6 +9,12 @@ import {
   listMemories,
 } from "./db/queries";
 import { deleteCategoryById, deleteMemoryById, updateMemory } from "./db/mutations";
+import {
+  SEARCH_DEFAULT_LIMIT,
+  SEARCH_MAX_LIMIT,
+  buildCategoryPaths,
+  searchMemories as runMemorySearch,
+} from "./memory-search";
 import type { Category, Memory } from "./db/schema";
 
 /** 需要前端执行的动作 */
@@ -18,53 +25,9 @@ export type ClientAction =
       draft: { categoryId?: string; title?: string; description?: string; date?: string };
     }
   | { type: "openEdit"; memoryId: string }
+  | { type: "openSearch"; query?: string; categoryId?: string }
   | { type: "moved"; memoryId: string; path: string }
   | { type: "forgotten"; kind: "memory" | "category"; targetId: string; fallbackPath: string };
-
-/** 收集某类别子树内的全部回忆；不传类别则返回全部 */
-function collectMemories(categoryId?: string): Memory[] {
-  const all = listMemories();
-  if (!categoryId) return all;
-
-  const cats = listCategories();
-  const childrenMap = new Map<string, string[]>();
-  for (const c of cats) {
-    if (!c.parentId) continue;
-    const arr = childrenMap.get(c.parentId) ?? [];
-    arr.push(c.id);
-    childrenMap.set(c.parentId, arr);
-  }
-
-  const ids = new Set<string>();
-  const stack = [categoryId];
-  while (stack.length) {
-    const id = stack.pop()!;
-    if (ids.has(id)) continue;
-    ids.add(id);
-    for (const ch of childrenMap.get(id) ?? []) stack.push(ch);
-  }
-  return all.filter((m) => ids.has(m.categoryId));
-}
-
-/** 构建「类别 id → 路径名（去根“地球”）」映射，供检索结果附带地点/归属信息 */
-function buildCategoryPaths(): Map<string, string> {
-  const cats = listCategories();
-  const byId = new Map(cats.map((c) => [c.id, c]));
-  const memo = new Map<string, string>();
-  const pathOf = (id: string): string => {
-    const cached = memo.get(id);
-    if (cached !== undefined) return cached;
-    const c = byId.get(id);
-    if (!c) return "";
-    const parent = c.parentId ? pathOf(c.parentId) : "";
-    const name = c.name === "地球" ? "" : c.name;
-    const full = [parent, name].filter(Boolean).join(" / ");
-    memo.set(id, full);
-    return full;
-  };
-  for (const c of cats) pathOf(c.id);
-  return memo;
-}
 
 /** 类别路径名（去根「地球」），用于生成记忆的 location 文本 */
 function locationOfCategory(categoryId: string): string {
@@ -139,28 +102,19 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
         limit: z
           .number()
           .optional()
-          .describe("返回条数上限，默认 20、最大 50；需要完整候选时请调大，争取一次取全"),
+          .describe(`返回条数上限，默认 ${SEARCH_DEFAULT_LIMIT}、最大 ${SEARCH_MAX_LIMIT}`),
       }),
       execute: ({ query, categoryId, from, to, limit }) => {
-        const pool = collectMemories(categoryId);
-        const q = query?.trim().toLowerCase();
-        const filtered = pool.filter((m) => {
-          if (from && (!m.date || m.date < from)) return false;
-          if (to && (!m.date || m.date > to)) return false;
-          if (!q) return true;
-          return [m.title, m.description, m.location].some((v) => v?.toLowerCase().includes(q));
-        });
-        const capped = filtered.slice(0, Math.min(Math.max(limit ?? 20, 1), 50));
-        const paths = buildCategoryPaths();
+        const { total, count, items } = runMemorySearch({ query, categoryId, from, to, limit });
         return {
-          total: filtered.length,
-          count: capped.length,
-          items: capped.map((m) => ({
+          total,
+          count,
+          items: items.map((m) => ({
             id: m.id,
             title: m.title,
             date: m.date,
             location: m.location,
-            category: paths.get(m.categoryId) ?? "",
+            category: m.category,
           })),
         };
       },
@@ -178,11 +132,20 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
       }),
       execute: ({ memoryIds, total }) => {
         const byId = new Map(listMemories().map((m) => [m.id, m]));
-        const items = memoryIds
+        const picked = memoryIds
           .map((id) => byId.get(id))
           .filter((m): m is Memory => Boolean(m))
-          .slice(0, 3)
-          .map((m) => ({ id: m.id, title: m.title, date: m.date }));
+          .slice(0, 3);
+        const paths = buildCategoryPaths();
+        // 附带封面与地点，前端卡片与搜索面板共用同一渲染组件
+        const items = attachCovers(picked).map((m) => ({
+          id: m.id,
+          title: m.title,
+          date: m.date,
+          location: m.location,
+          category: paths.get(m.categoryId) ?? "",
+          cover: m.cover,
+        }));
         return {
           ok: true,
           count: items.length,
@@ -365,6 +328,23 @@ export function createAgentTools(ctx: { currentCategoryId?: string; userConfirme
           message: "已为你打开上传面板并预填好，选择图片后保存即可。",
           clientAction,
         };
+      },
+    }),
+
+    openSearch: tool({
+      description:
+        "为用户打开「搜索回忆」面板（可按关键词、类别、日期筛选并一次列出全部结果）。当用户想自己翻找/浏览回忆，或结果较多（超出卡片每批 3 条）时调用。",
+      inputSchema: z.object({
+        query: z.string().optional().describe("预填关键词"),
+        categoryId: z.string().optional().describe("预填类别 id"),
+      }),
+      execute: ({ query, categoryId }) => {
+        const clientAction: ClientAction = {
+          type: "openSearch",
+          ...(query ? { query } : {}),
+          ...(categoryId && getCategory(categoryId) ? { categoryId } : {}),
+        };
+        return { ok: true, message: "已打开搜索面板，可以直接翻看全部结果。", clientAction };
       },
     }),
 

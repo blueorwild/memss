@@ -321,7 +321,7 @@ ai_try/
 
 > A（Phase 2 Step 6）已完成；B/C/D（部署与上线）在另一台机器上做。
 > 范围已裁剪：**E2 / E3 / E7 / E8 不做**（每图 caption、多音乐、批量导入、精灵形象与语音）；命名与 favicon/OG 等视觉附件留待单独阶段。
-> 执行顺序：**E1 ✅ → 搜索(原 E5+E6) → E4 → E9**（E9 全局改色放最后，避免与前面反复冲突）。
+> 执行顺序：**E1 ✅ → 搜索(原 E5+E6) ✅ → E4 → E9**（E9 全局改色放最后，避免与前面反复冲突）。
 
 ### E1 分类树重命名 / 移动 ✅ 已完成
 - `PATCH /api/categories/[id]`（body `{name?, parentId?}`），校验五件套：根「地球」不可改、目标父级存在且非自身、**防环**（目标父级不得落在自身子树内）、**深度**（`depth(新父) + 子树高度 ≤ 5`）、目标同级重名。移动到新父级时追加到同级末尾（`sortOrder`）。
@@ -329,11 +329,14 @@ ai_try/
 - UI：`src/components/starfield/CategoryEditDialog.tsx`（复用 `ui/dialog.tsx`）；父级候选**排除自身子树**（UI 侧再挡一道防环）；星空页右上角新增「编辑」，位于「遗忘」左侧。父级选择用**弹层内联可折叠 cmdk 列表**而非 `Combobox`——Radix Dialog 内用 Portal 型 Popover 会被弹层盖住（`z-[80]` < `z-[91]`）、`body` 被设 `pointer-events:none`、且与焦点陷阱冲突（详见 `WORKBUDDY_MEMORY.md`）。**移动到新父级后 URL（按 id 组织）会失效 → 客户端算出新完整路径并 `router.push`**；仅改名则 `router.refresh()`。
 - 验证：用一次性测试类别覆盖改名 / 同级重名 409 / 防环 400 / 超深 400（含临界合法 5 级）/ 根类别 400 / 不存在 404 / 合法移动；API 实测 `location` 随父级与子树改名同步（`E1R / E1S-改名` → 改名父级后 `E1R-改名 / E1S-改名` → 移动后 `E1S-改名`）；UI（桌面 1440 + 移动 375）用 **CDP 真实坐标点击/触摸**确认入口、弹层、候选排除自身子树、**候选列表无 Portal 且命中测试通过（不被弹层遮挡）**、改名后 header 更新、移动后 URL 变为新路径、展开后弹层仍在视口内（375 下 345×566 ≤ 85dvh）且无控制台报错；真实数据回归无异常。（首轮 UI 测试因用 JS `.click()` 绕过层叠顺序漏掉了「下拉被弹层盖住」的 bug，已改用坐标点击复验。）
 
-### 搜索（原 E5 + E6）—— 待做
-- **一套内核两个入口**：把 `agent-tools.ts` 里的过滤逻辑抽到 `src/lib/memory-search.ts`（关键词匹配标题/描述/location、类别含子树、日期区间），Agent 工具与 `GET /api/memories/search` 共用，避免语义漂移。
-- `SpriteView` 加 `"search"`；`ActionBar` 加「搜索」；新 `SearchPanel`：关键词 + 类别 + 日期区间 + **纵向滚动列表**（复用共享 `MemoryListItem`），点击进详情；不设 3 条上限（默认 30 / 上限 100）。
-- 聊天卡片同步改用共享 `MemoryListItem`（**紧凑档**：缩略图 + 标题 + 日期，不含地点），`showMemories` 工具补 `cover`。
-- 与聊天搜索不冲突：两者只读同一份数据、同一份过滤逻辑；差别是聊天受「每批 3 张卡」限制且需 2 次 LLM 往返。
+### 搜索（原 E5 + E6）✅ 已完成
+- **一套内核两个入口**：`src/lib/memory-search.ts` 抽出检索内核（`collectMemories` / `buildCategoryPaths` / `searchMemories`，关键词匹配标题·描述·location、类别含子树、日期闭区间、按日期由新到旧）；`SEARCH_DEFAULT_LIMIT=30`、`SEARCH_MAX_LIMIT=100`。Agent 的 `searchMemories` 工具与 `GET /api/memories/search` **共用同一函数**，语义不会漂移。`queries.ts` 抽出 `attachCovers()`（`listMemoryCards` 复用），检索结果直接带封面裁剪参数。
+- **API**：`GET /api/memories/search?q=&categoryId=&from=&to=&limit=` → `{ total, count, items, maxLimit }`，items 含 `location`、`category`（路径）、`cover`。
+- **UI**：`ActionBar` 加「搜索」（`SpriteView` 加 `"search"`）；新 `src/components/sprite/SearchPanel.tsx` = 关键词（250ms 防抖）+ 类别（`Combobox`，含「全部类别」）+ 日期区间（原生 `type=date`，`[color-scheme:dark]`）+ **纵向滚动列表**，一次列出全部结果（超过上限时提示「仅显示前 N 条」），点击进详情（星空页走迷雾过渡）；窄屏点击后自动收起抽屉。
+- **共享卡片**：`src/components/memory/MemoryListItem.tsx`（缩略图 + 标题 + 日期 + 地点），**对话检索卡片用 compact 档**（无封面时不占位，兼容旧消息）与搜索面板共用；`showMemories` 工具补 `cover`/`location`/`category`，`agent/route.ts` 的 `CardItem` 同步扩展。
+- **Agent 侧**：新增 `openSearch` 工具 + `ClientAction.openSearch`，SYSTEM_PROMPT 说明「结果多/想自己翻找时打开搜索面板」；`searchMemories` 的 limit 说明改为默认 30 / 最大 100。
+- 与聊天搜索**不冲突**：同一份数据、同一份过滤逻辑；差别只是聊天受「每批 3 张卡」限制且需 LLM 往返，面板直接查库、零延迟。
+- 验证：API（`q=浅草`→1、无匹配→0、`categoryId=jp`→11 含东京子树、`categoryId=tokyo`→10、日期区间→26、`limit=200`→截断 100）；桌面 1440 与移动 375 均用 **CDP 真实坐标点击/触摸**：ActionBar 4 键单行不换行、面板标题「搜索回忆」、初始 30/共 137 条带缩略图、关键词 11 条、类别「地球 / 日本」11 条、+2024 年区间 5 条、清除复位；点击结果 → `/memory/m_ginza`（窄屏抽屉自动收起）；真实调 Agent 一轮确认 `memories` 事件已带 `cover`（测试会话已删除）；对话旧卡片无封面时正常降级；无横向溢出、无控制台报错。
 
 ### E4 详情页图片放大 —— 待做
 - 新 `ImageViewer`：详情主图单击 → 全屏 Lightbox（`object-contain` + 双指/滚轮/双击缩放 + 拖动平移 + Esc/点背景关闭）；复用 `lib/crop.ts` 的 clamp 思路；弹层带 `role="dialog"`，靠 `shouldIgnorePageShortcut` 保证 Esc 不误返回。

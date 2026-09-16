@@ -71,10 +71,19 @@ export function listMemoryCards(categoryId: string): MemoryCard[] {
     if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+  return attachCovers(sorted);
+}
+
+/**
+ * 为一批回忆补齐封面：优先显式 coverMediaId，失效则回退该回忆首张图片；无图则 null。
+ * 检索结果与类别列表共用（保持卡片封面口径一致）。
+ */
+export function attachCovers(mems: Memory[]): MemoryCard[] {
+  if (mems.length === 0) return [];
   const assets = db
     .select()
     .from(media)
-    .where(inArray(media.memoryId, sorted.map((m) => m.id)))
+    .where(inArray(media.memoryId, mems.map((m) => m.id)))
     .orderBy(asc(media.sortOrder))
     .all();
   // 图片：mediaId → 媒体行（用于解析显式封面），以及 memoryId → 首张图片（回退用）
@@ -85,9 +94,9 @@ export function listMemoryCards(categoryId: string): MemoryCard[] {
     imageById.set(a.id, a);
     if (!firstImage.has(a.memoryId)) firstImage.set(a.memoryId, a);
   }
-  // 封面优先取显式设置的 coverMediaId，失效则回退首张；带上其裁剪焦点
-  return sorted.map((m) => {
-    const chosen = (m.coverMediaId ? imageById.get(m.coverMediaId) : undefined) ?? firstImage.get(m.id);
+  return mems.map((m) => {
+    const chosen =
+      (m.coverMediaId ? imageById.get(m.coverMediaId) : undefined) ?? firstImage.get(m.id);
     return {
       ...m,
       cover: chosen

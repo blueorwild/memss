@@ -3,10 +3,11 @@
 import { useSpriteStore } from "@/store/sprite";
 import type { SpriteView } from "@/store/sprite";
 
-/** 功能按钮定义：后续可在此扩展更多能力 */
+/** 功能按钮定义：后续可在此扩展更多能力（标签用短词，窄屏 4 个按钮不至于换行） */
 const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
   { key: "chat", label: "对话", icon: "✦" },
-  { key: "upload", label: "上传回忆", icon: "＋" },
+  { key: "search", label: "搜索", icon: "⌕" },
+  { key: "upload", label: "上传", icon: "＋" },
   { key: "settings", label: "设置", icon: "⚙" },
 ];
 

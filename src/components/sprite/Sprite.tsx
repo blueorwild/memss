@@ -8,6 +8,7 @@ import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
 import MemoryForm from "./MemoryForm";
+import SearchPanel from "./SearchPanel";
 import SettingsPanel from "./SettingsPanel";
 
 /** 悬浮球直径与视口边距 */
@@ -345,7 +346,13 @@ export default function Sprite() {
               }`}
             >
               <span className="text-sm font-medium">
-                {view === "edit" ? "编辑回忆" : view === "upload" ? "上传回忆" : "小精灵"}
+                {view === "edit"
+                  ? "编辑回忆"
+                  : view === "upload"
+                    ? "上传回忆"
+                    : view === "search"
+                      ? "搜索回忆"
+                      : "小精灵"}
               </span>
               <button
                 type="button"
@@ -360,6 +367,8 @@ export default function Sprite() {
             <div className="min-h-0 flex-1">
               {view === "chat" ? (
                 <ChatPanel />
+              ) : view === "search" ? (
+                <SearchPanel />
               ) : view === "upload" ? (
                 <MemoryForm mode="create" onDone={close} />
               ) : view === "edit" && editMemoryId ? (
