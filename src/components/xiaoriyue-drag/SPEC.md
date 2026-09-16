@@ -35,7 +35,13 @@ src/components/xiaoriyue-drag/
 ## 2. 组件契约
 
 ```tsx
-export default function PetArt({ className }: { className?: string }) { /* ... */ }
+export type PetAction = "idle" | "happy";
+export const ACTION_DURATION_MS = { happy: 1800 } as const;
+export default function PetArt({ className, action = "idle", actionKey = 0 }: {
+  className?: string;
+  action?: PetAction;
+  actionKey?: number;
+}) { /* ... */ }
 ```
 
 - 根元素必须是单个 `<svg>`，且：
@@ -58,6 +64,13 @@ export default function PetArt({ className }: { className?: string }) { /* ... *
   （`onClick`/`onPointerDown` 等）、读取 `window` / `document` / `localStorage`、
   `'use client'` 之外的副作用、`setTimeout`/`setInterval` 驱动的动画。
 - 组件必须是**纯展示**的：同样的 props 渲染同样的 DOM。
+
+### v5 可选动作扩展
+
+旧用法不变，默认 `idle`。宿主传入 `action="happy"` 播放一次开心动作，递增 `actionKey` 可重播。
+宿主按 `ACTION_DURATION_MS.happy` 在 1800ms 后切回 `idle`，负责计时取消及卸载清理；美术包没有事件或计时副作用。
+新命名导出为增量接口，既有 default export、FRAME、CHAR 均不变。可选接入示例见 `README.md`。
+仅内部动作层因动作或播放编号变化重新挂载；定位和倾斜层保留。动作切入为确定起始姿态，并非任意相位混合。
 
 ---
 

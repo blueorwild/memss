@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
-import PetArt, { CHAR, FRAME } from "@/components/xiaoriyue-drag/PetArt";
+import PetArt, { ACTION_DURATION_MS, CHAR, FRAME, type PetAction } from "@/components/xiaoriyue-drag/PetArt";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
@@ -16,7 +16,7 @@ import SettingsPanel from "./SettingsPanel";
  * 角色主体视觉高度（px）：桌面与移动一致，略大于原 56px 悬浮球。
  * 美术包只声明 viewBox 与角色包围盒，尺寸换算由宿主完成（见 SPEC.md §3）。
  */
-const PET_H = 64;
+const PET_H = 80;
 /** 外框宽 / 高（px）：按 viewBox 与角色主体比例换算，保证倾斜与动作余量不被裁切 */
 const PET_W = (PET_H * FRAME.w) / CHAR.h;
 const PET_BOX_H = (PET_H * FRAME.h) / CHAR.h;
@@ -170,6 +170,9 @@ export default function Sprite() {
   const [dust, setDust] = useState<Dust[]>([]);
   // 宽屏面板左上角坐标（null = 跟随角色推算；手动拖过后与角色解耦，刷新即复位）
   const [panelPos, setPanelPos] = useState<Box | null>(null);
+  // 一次性动作：点开面板时播放 happy，播完由宿主切回 idle（见 xiaoriyue-drag/README.md）
+  const [action, setAction] = useState<PetAction>("idle");
+  const [actionKey, setActionKey] = useState(0);
 
   // 窄屏：面板改为底部抽屉
   const isMobile = useIsMobile();
@@ -189,6 +192,16 @@ export default function Sprite() {
   const tiltTimeRef = useRef(0);
   const trailId = useRef(0);
   const dustId = useRef(0);
+  // happy 动作计时器：重复触发需取消旧计时，卸载需清理
+  const actionTimerRef = useRef<number | null>(null);
+
+  // 卸载时清掉 happy 计时，避免卸载后再 setState
+  useEffect(
+    () => () => {
+      if (actionTimerRef.current !== null) window.clearTimeout(actionTimerRef.current);
+    },
+    [],
+  );
 
   // 初始化位置：优先读 localStorage，否则默认右下角
   // 用 setTimeout 异步设置，避免在 effect 内同步 setState 触发级联渲染
@@ -316,12 +329,24 @@ export default function Sprite() {
     window.addEventListener("pointerup", onPointerUp, { once: true });
   }
 
-  /** 点击：仅在「非拖动」时开合面板 */
+  /** 播放一次开心动作：清旧计时后从头播放，播完切回 idle（美术包不自行改 props） */
+  function playHappy() {
+    if (actionTimerRef.current !== null) window.clearTimeout(actionTimerRef.current);
+    setAction("happy");
+    setActionKey((k) => k + 1);
+    actionTimerRef.current = window.setTimeout(() => {
+      setAction("idle");
+      actionTimerRef.current = null;
+    }, ACTION_DURATION_MS.happy);
+  }
+
+  /** 点击：仅在「非拖动」时开合面板；打开面板的那一次附带一次开心动作 */
   function onBallClick() {
     if (justDraggedRef.current) {
       justDraggedRef.current = false;
       return;
     }
+    if (!open) playHappy();
     toggle();
   }
 
@@ -532,7 +557,11 @@ export default function Sprite() {
         }`}
         style={petStyle}
       >
-        <PetArt className="pointer-events-none absolute inset-0 h-full w-full text-star" />
+        <PetArt
+          className="pointer-events-none absolute inset-0 h-full w-full text-star"
+          action={action}
+          actionKey={actionKey}
+        />
         <button
           type="button"
           onPointerDown={onPointerDown}
