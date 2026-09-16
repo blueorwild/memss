@@ -17,7 +17,6 @@ type Props = {
   onOpen: (id: string) => void;
   onChanged: (deletedIds: string[]) => void;
   onBack: () => void;
-  onNew: () => void;
 };
 
 /** 会话历史面板：列表 / 多选删除 / 一键清空 */
@@ -27,7 +26,6 @@ export default function HistoryPanel({
   onOpen,
   onChanged,
   onBack,
-  onNew,
 }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -77,9 +75,8 @@ export default function HistoryPanel({
           ‹ 返回对话
         </button>
         <span className="text-white/40">对话历史</span>
-        <button type="button" onClick={onNew} className="transition-colors hover:text-white">
-          + 新对话
-        </button>
+        {/* 新建对话已挪到对话页顶部细条，这里不再重复 */}
+        <span aria-hidden className="w-12" />
       </div>
 
       <div className="flex-1 space-y-1 overflow-y-auto p-3">

@@ -208,3 +208,5 @@
 - `ChatPanel` 顶部细条（`使用中：模型` 那行）右侧现在是 `＋ 新对话 | 历史`；`newConversation()` 无损（旧会话留在历史，下次发消息才落新会话）。
 - **降载口径统一宽窄屏**：`StarBackground` 的 `MAX_DPR=1.5`、`STAR_CAP=220`；`Sprite` 常驻粒子 10、拖尾星尘 1。窄屏无变化，宽屏 canvas 像素 -44%（Retina 星点略软，可接受）。
 - 星云最终值：冷蓝 `0.22`（左上）+ 暖紫 `0.17`（右下）**两团**，第三团冷青已删（`--sky-nebula-3` token 一并移除）。0.18/0.14 看不见、0.35/0.28 太显眼，0.22/0.17 是实测的折中。
+- **「⋯」更多菜单用内联实现，不用 Portal 浮层**（`src/components/ui/more-menu.tsx`）：弹层类组件的层叠问题（z-index 低于弹层 + Radix Dialog 给 body 设 pointer-events:none + 焦点陷阱）已经踩过，菜单这类小浮层就地绝对定位最稳。打开时 Esc **在 `document` 捕获阶段** `stopPropagation()`，这样只关菜单、不会触发页面级的 Esc（返回上级 / 返回星空）。
+- 返回按钮统一用 `src/components/ui/back-button.tsx`（弯曲左箭头 SVG，无文字）；「新建对话」只在对话页顶部细条，历史面板不再重复入口。

@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Breadcrumb from "@/components/starfield/Breadcrumb";
+import BackButton from "@/components/ui/back-button";
+import MoreMenu from "@/components/ui/more-menu";
 import {
   Dialog,
   DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Category, MemoryWithMedia } from "@/lib/db/queries";
 import { coverStyle } from "@/lib/crop";
@@ -82,6 +83,8 @@ export default function MemoryScene({
   const [failed, setFailed] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 遗忘确认弹层（由右上角「⋯」菜单触发）
+  const [delOpen, setDelOpen] = useState(false);
   // 全屏看图（Lightbox）开关
   const [viewerOpen, setViewerOpen] = useState(false);
 
@@ -270,64 +273,52 @@ export default function MemoryScene({
         </div>
       )}
 
-      <header className="relative z-10 flex items-start justify-between gap-4 px-4 py-3 pt-[calc(var(--safe-top)+12px)] sm:px-6 sm:py-5 sm:pt-5">
-        <div className="flex flex-col gap-2">
+      <header className="relative z-30 flex items-start justify-between gap-4 px-4 py-3 pt-[calc(var(--safe-top)+12px)] sm:px-6 sm:py-5 sm:pt-5">
+        <div className="flex min-w-0 flex-col gap-2">
           <Breadcrumb items={crumbItems} />
-          <button
-            type="button"
-            onClick={handleBack}
-            className="-my-1 inline-flex w-fit items-center gap-1 px-1 py-1.5 text-sm text-white/60 transition-colors hover:text-white"
-          >
-            ← 返回
-          </button>
+          <BackButton onClick={handleBack} />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span className="text-sm text-white/50">{memory.date}</span>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => useSpriteStore.getState().openEdit(memory.id)}
-              className="-my-1 px-1 py-1.5 text-sm text-white/70 transition-colors hover:text-white"
-            >
-              编辑
-            </button>
-            <Dialog>
-              <DialogTrigger asChild>
-                <button
-                  type="button"
-                  className="-my-1 px-1 py-1.5 text-sm text-red-300/80 transition-colors hover:text-red-300"
-                >
-                  遗忘
-                </button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogTitle>遗忘这条回忆？</DialogTitle>
-                <DialogDescription>
-                  「{memory.title}」及其图片、音乐将被永久遗忘，无法找回。
-                </DialogDescription>
-                <div className="mt-5 flex justify-end gap-2">
-                  <DialogClose asChild>
-                    <button
-                      type="button"
-                      className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
-                    >
-                      取消
-                    </button>
-                  </DialogClose>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
-                  >
-                    {deleting ? "遗忘中…" : "确认遗忘"}
-                  </button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+          <MoreMenu
+            items={[
+              {
+                label: "编辑",
+                onSelect: () => useSpriteStore.getState().openEdit(memory.id),
+              },
+              { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
+            ]}
+          />
         </div>
       </header>
+
+      {/* 遗忘确认弹层：由右上角「⋯」菜单触发 */}
+      <Dialog open={delOpen} onOpenChange={setDelOpen}>
+        <DialogContent>
+          <DialogTitle>遗忘这条回忆？</DialogTitle>
+          <DialogDescription>
+            「{memory.title}」及其图片、音乐将被永久遗忘，无法找回。
+          </DialogDescription>
+          <div className="mt-5 flex justify-end gap-2">
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+              >
+                取消
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-full bg-red-500/80 px-4 py-2 text-sm text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+            >
+              {deleting ? "遗忘中…" : "确认遗忘"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-5 px-4 pb-28 sm:gap-8 sm:px-6 sm:pb-16">
         {/* 宽屏：播放按钮在图片上方正中（独立一行） */}

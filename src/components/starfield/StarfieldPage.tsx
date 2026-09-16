@@ -10,6 +10,8 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import BackButton from "@/components/ui/back-button";
+import MoreMenu from "@/components/ui/more-menu";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
 import { shouldIgnorePageShortcut } from "@/lib/dom";
@@ -128,35 +130,17 @@ export default function StarfieldPage({
 
       <div className="relative z-10 flex h-full flex-col motion-safe:animate-[sceneIn_0.6s_ease-out_both]">
         <header className="flex shrink-0 items-start justify-between gap-4 px-4 py-3 pt-[calc(var(--safe-top)+12px)] sm:px-6 sm:py-5 sm:pt-5">
-          <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-2">
             <Breadcrumb items={breadcrumb.map((c) => ({ id: c.id, name: c.name }))} />
-            {path.length > 1 && (
-              <button
-                type="button"
-                onClick={goUp}
-                className="inline-flex w-fit items-center gap-1 text-sm text-white/60 transition-colors hover:text-white"
-              >
-                ← 返回
-              </button>
-            )}
+            {path.length > 1 && <BackButton onClick={goUp} label="返回上一级" />}
           </div>
           {current.parentId && (
-            <div className="flex shrink-0 items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className="text-sm text-white/70 transition-colors hover:text-white"
-              >
-                编辑
-              </button>
-              <button
-                type="button"
-                onClick={() => setDelOpen(true)}
-                className="text-sm text-red-300/80 transition-colors hover:text-red-300"
-              >
-                遗忘
-              </button>
-            </div>
+            <MoreMenu
+              items={[
+                { label: "编辑", onSelect: () => setEditOpen(true) },
+                { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
+              ]}
+            />
           )}
         </header>
 

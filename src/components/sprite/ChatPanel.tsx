@@ -360,7 +360,6 @@ export default function ChatPanel() {
           if (conversationId && deletedIds.includes(conversationId)) newConversation();
         }}
         onBack={() => setView("chat")}
-        onNew={newConversation}
       />
     );
   }
