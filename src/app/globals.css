@@ -24,6 +24,8 @@
   /* 暖金（时间 / 回忆） */
   --warm: 255 243 216;
   --warm-glow: 255 238 180;
+  /* 小精灵美术（SVG 光点 / 高亮）引用，见 components/xiaoriyue-drag/SPEC.md */
+  --pet-glow: rgb(var(--warm-glow));
   /* 成功 / 使用中 */
   --ok: 52 211 153;
 

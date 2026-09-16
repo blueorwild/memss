@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import PetArt, { CHAR, FRAME } from "@/components/xiaoriyue-drag/PetArt";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { useSpriteStore } from "@/store/sprite";
@@ -11,11 +12,42 @@ import MemoryForm from "./MemoryForm";
 import SearchPanel from "./SearchPanel";
 import SettingsPanel from "./SettingsPanel";
 
-/** 悬浮球直径与视口边距 */
-const BALL = 56;
+/**
+ * 角色主体视觉高度（px）：桌面与移动一致，略大于原 56px 悬浮球。
+ * 美术包只声明 viewBox 与角色包围盒，尺寸换算由宿主完成（见 SPEC.md §3）。
+ */
+const PET_H = 64;
+/** 外框宽 / 高（px）：按 viewBox 与角色主体比例换算，保证倾斜与动作余量不被裁切 */
+const PET_W = (PET_H * FRAME.w) / CHAR.h;
+const PET_BOX_H = (PET_H * FRAME.h) / CHAR.h;
+/** 角色主体矩形相对外框左上角的偏移与尺寸（px）——命中区与避让都用它 */
+const BODY = {
+  left: ((CHAR.x - FRAME.x) / FRAME.w) * PET_W,
+  top: ((CHAR.y - FRAME.y) / FRAME.h) * PET_BOX_H,
+  w: (CHAR.w / FRAME.w) * PET_W,
+  h: (CHAR.h / FRAME.h) * PET_BOX_H,
+};
+/** 角色主体中心相对外框左上角的偏移（拖尾光带 / 粒子原点） */
+const CORE = { dx: BODY.left + BODY.w / 2, dy: BODY.top + BODY.h / 2 };
+/** 命中区（角色主体）在外框内的百分比：点影子与顶部空白不会拖走角色 */
+const HIT = {
+  left: ((CHAR.x - FRAME.x) / FRAME.w) * 100,
+  top: ((CHAR.y - FRAME.y) / FRAME.h) * 100,
+  w: (CHAR.w / FRAME.w) * 100,
+  h: (CHAR.h / FRAME.h) * 100,
+};
+/** 视口边距 */
 const MARGIN = 12;
 /** 位置存储键（localStorage） */
 const POS_KEY = "sprite-pos";
+/** 桌面浮动面板尺寸与间隙（用于角色 / 面板互相避让） */
+const PANEL_W = 360;
+const PANEL_H = 460;
+const PANEL_GAP = 12;
+/** 拖拽倾斜上限（度） */
+const TILT_MAX = 6;
+/** 角色与面板之间的保底间隙（px）：避免像素级贴边看起来像重叠 */
+const OUT_GAP = 1;
 /** 科幻青蓝主色（电光蓝）：走主题 token，见 globals.css 的 --accent */
 const SPARK = "rgb(var(--accent))";
 /** 拖尾生命时长（秒）：淡出动画时长；DOM 移除在此基础上 +REMOVE_OFFSET */
@@ -28,8 +60,87 @@ const REMOVE_OFFSET = 50;
 type Pt = { x: number; y: number };
 /** 面板定位用（CSS left/top，避免与 framer-motion 的 x/y transform 混淆） */
 type Box = { left: number; top: number };
+type Rect = { left: number; top: number; right: number; bottom: number };
 type DragState = { startX: number; startY: number; origin: Pt; moved: boolean };
 type Dust = { id: number; x: number; y: number; dx: number; dy: number; size: number };
+
+/** 外框左上角坐标 → 角色主体矩形（避让与命中判定用） */
+function bodyRect(p: Pt): Rect {
+  return {
+    left: p.x + BODY.left,
+    top: p.y + BODY.top,
+    right: p.x + BODY.left + BODY.w,
+    bottom: p.y + BODY.top + BODY.h,
+  };
+}
+
+/** 面板左上角坐标 → 面板矩形 */
+function panelRect(b: Box): Rect {
+  return { left: b.left, top: b.top, right: b.left + PANEL_W, bottom: b.top + PANEL_H };
+}
+
+function overlaps(a: Rect, b: Rect) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/** 外框位置夹取到视口内（并让开底部安全区） */
+function clampViewport(p: Pt, safeBottom: number): Pt {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  return {
+    x: Math.min(Math.max(MARGIN, p.x), Math.max(MARGIN, w - MARGIN - PET_W)),
+    y: Math.min(Math.max(MARGIN, p.y), Math.max(MARGIN, h - MARGIN - PET_BOX_H - safeBottom)),
+  };
+}
+
+/**
+ * 把角色沿最小位移推出面板矩形（用于「面板挤开角色」）。
+ * 逐个尝试四个方向（按位移从小到大），取第一个「夹取到视口内后仍不重叠」的方向；
+ * 都不可行时退回位移最小的方向（保底：宁可重叠也不把角色丢出视口）。
+ */
+function pushOut(p: Pt, rect: Rect, safeBottom: number): Pt {
+  const r = bodyRect(p);
+  const gap = OUT_GAP;
+  const moves: Pt[] = [
+    { x: 0, y: rect.top - r.bottom - gap }, // 向上
+    { x: 0, y: rect.bottom - r.top + gap }, // 向下
+    { x: rect.left - r.right - gap, y: 0 }, // 向左
+    { x: rect.right - r.left + gap, y: 0 }, // 向右
+  ].sort((a, b) => Math.abs(a.x) + Math.abs(a.y) - (Math.abs(b.x) + Math.abs(b.y)));
+  for (const m of moves) {
+    const cand = clampViewport({ x: p.x + m.x, y: p.y + m.y }, safeBottom);
+    if (!overlaps(bodyRect(cand), rect)) return cand;
+  }
+  const fallback = moves[0];
+  return clampViewport({ x: p.x + fallback.x, y: p.y + fallback.y }, safeBottom);
+}
+
+/**
+ * 由角色位置推导面板候选位置（优先放在角色左上方，全部夹在视口内）。
+ * 角色不能与面板重叠，所以候选按「左上 → 左下 → 左 → 右 → 右上」依次尝试。
+ */
+function panelCandidates(p: Pt): Box[] {
+  const maxL = Math.max(8, window.innerWidth - PANEL_W - 8);
+  const maxT = Math.max(8, window.innerHeight - PANEL_H - 8);
+  const raw: Box[] = [
+    { left: p.x + PET_W - PANEL_W, top: p.y - PANEL_H - PANEL_GAP },
+    { left: p.x + PET_W - PANEL_W, top: p.y + PET_BOX_H + PANEL_GAP },
+    { left: p.x - PANEL_W - PANEL_GAP, top: p.y + PET_BOX_H - PANEL_H },
+    { left: p.x + PET_W + PANEL_GAP, top: p.y + PET_BOX_H - PANEL_H },
+    { left: p.x + PET_W + PANEL_GAP, top: p.y - PANEL_H - PANEL_GAP },
+  ];
+  return raw.map((b) => ({
+    left: Math.min(Math.max(8, b.left), maxL),
+    top: Math.min(Math.max(8, b.top), maxT),
+  }));
+}
+
+/** 面板默认位置：第一个与角色主体不重叠的候选（都重叠时退回第一个） */
+function derivedPanelPos(p: Pt): Box {
+  const body = bodyRect(p);
+  const list = panelCandidates(p);
+  return list.find((c) => !overlaps(body, panelRect(c))) ?? list[0];
+}
 
 /**
  * 常驻粒子参数：用固定种子（mulberry32）生成，保证 SSR 与客户端一致，
@@ -44,7 +155,7 @@ const PARTICLES = Array.from({ length: 20 }, () => ({
   size: 1.5 + rand() * 1.5,
 }));
 
-/** 悬浮小精灵：可拖拽的发光蓝球 + 可展开面板（全局常驻） */
+/** 悬浮小精灵：可拖拽的线稿角色 + 可展开面板（全局常驻） */
 export default function Sprite() {
   const open = useSpriteStore((s) => s.open);
   const view = useSpriteStore((s) => s.view);
@@ -52,18 +163,19 @@ export default function Sprite() {
   const toggle = useSpriteStore((s) => s.toggle);
   const close = useSpriteStore((s) => s.close);
 
-  const [pos, setPos] = useState<Pt | null>(null); // 球的左上角坐标（null = 尚未初始化）
+  const [pos, setPos] = useState<Pt | null>(null); // 外框的左上角坐标（null = 尚未初始化）
   const [dragging, setDragging] = useState(false);
+  const [tilt, setTilt] = useState(0); // 拖拽倾斜角（度）
   const [trail, setTrail] = useState<{ id: number; x: number; y: number }[]>([]);
   const [dust, setDust] = useState<Dust[]>([]);
-  // 宽屏面板左上角坐标（null = 跟随球推算；手动拖过后与球解耦，刷新即复位）
+  // 宽屏面板左上角坐标（null = 跟随角色推算；手动拖过后与角色解耦，刷新即复位）
   const [panelPos, setPanelPos] = useState<Box | null>(null);
 
   // 窄屏：面板改为底部抽屉
   const isMobile = useIsMobile();
-  // 降载：减少动态效果（关闭呼吸/粒子无限动画与拖拽特效）
+  // 降载：减少动态效果（关闭粒子无限动画、拖拽特效与倾斜）
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  // 底部安全区高度（px）：让悬浮球避开 iPhone 底部横条
+  // 底部安全区高度（px）：让角色避开 iPhone 底部横条
   const safeBottomRef = useRef(0);
 
   const posRef = useRef<Pt | null>(null);
@@ -72,6 +184,9 @@ export default function Sprite() {
   const panelDragRef = useRef<{ startX: number; startY: number; origin: Box } | null>(null);
   // 记录「本次交互是否发生了拖动」，用于区分点击与拖动（拖动后不弹面板）
   const justDraggedRef = useRef(false);
+  // 倾斜速度采样（水平位移 / 时间）
+  const tiltXRef = useRef(0);
+  const tiltTimeRef = useRef(0);
   const trailId = useRef(0);
   const dustId = useRef(0);
 
@@ -81,23 +196,20 @@ export default function Sprite() {
     const timer = window.setTimeout(() => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      // 读取底部安全区（刘海屏底部横条），让球与其保持距离；
-      // 窄屏再让开详情页固定底栏，避免球压住底栏按钮
+      // 读取底部安全区（刘海屏底部横条），让角色与其保持距离；
+      // 窄屏再让开详情页固定底栏，避免角色压住底栏按钮
       const safeB =
         (parseFloat(
           getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom"),
         ) || 0) + (isMobile ? 64 : 0);
       safeBottomRef.current = safeB;
-      const maxY = h - MARGIN - BALL - safeB;
-      let next: Pt = { x: w - MARGIN - BALL, y: maxY };
+      const maxY = h - MARGIN - PET_BOX_H - safeB;
+      let next: Pt = { x: w - MARGIN - PET_W, y: maxY };
       try {
         const saved = localStorage.getItem(POS_KEY);
         if (saved) {
           const p = JSON.parse(saved) as Pt;
-          next = {
-            x: Math.min(Math.max(MARGIN, p.x), w - MARGIN - BALL),
-            y: Math.min(Math.max(MARGIN, p.y), maxY),
-          };
+          next = clampViewport(p, safeB);
         }
       } catch {
         /* 读取失败则用默认位置 */
@@ -118,7 +230,7 @@ export default function Sprite() {
     };
   }, [open, isMobile]);
 
-  // 拖拽移动：更新位置、记录拖尾光带点、并在路径上随机飞溅星尘粒子
+  // 拖拽移动：更新位置与倾斜、记录拖尾光带点、并在路径上随机飞溅星尘粒子
   const onPointerMove = useCallback((e: PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
@@ -127,17 +239,26 @@ export default function Sprite() {
     if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
     if (!d.moved) return;
 
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const next = {
-      x: Math.min(Math.max(MARGIN, d.origin.x + dx), w - MARGIN - BALL),
-      y: Math.min(Math.max(MARGIN, d.origin.y + dy), h - MARGIN - BALL - safeBottomRef.current),
-    };
+    let next = clampViewport({ x: d.origin.x + dx, y: d.origin.y + dy }, safeBottomRef.current);
+
+    // 面板打开时作为静态障碍：角色不得进入面板区域（沿最小位移推出后重新夹取）
+    if (open && !isMobile) {
+      // 面板位置用「即将生效的角色位置」推导，避免与下一帧渲染的面板错位一拍
+      const rect = panelRect(panelPos ?? derivedPanelPos(next));
+      if (overlaps(bodyRect(next), rect)) next = pushOut(next, rect, safeBottomRef.current);
+    }
     posRef.current = next;
     setPos(next);
 
-    const cx = next.x + BALL / 2;
-    const cy = next.y + BALL / 2;
+    // 倾斜：按水平速度跟随（停止后由 CSS transition 回正；reduced-motion 下不倾斜）
+    const now = performance.now();
+    const velocity = (e.clientX - tiltXRef.current) / Math.max(8, now - tiltTimeRef.current);
+    tiltXRef.current = e.clientX;
+    tiltTimeRef.current = now;
+    setTilt(reduceMotion ? 0 : Math.max(-TILT_MAX, Math.min(TILT_MAX, velocity * 5)));
+
+    const cx = next.x + CORE.dx;
+    const cy = next.y + CORE.dy;
 
     // reduced-motion 下不产生拖尾/星尘特效
     if (reduceMotion) return;
@@ -164,14 +285,15 @@ export default function Sprite() {
       setDust((arr) => [...arr.slice(-50), particle]);
       window.setTimeout(() => setDust((arr) => arr.filter((p) => p.id !== id)), DUST_LIFE * 1000 + REMOVE_OFFSET);
     }
-  }, [reduceMotion]);
+  }, [reduceMotion, open, isMobile, panelPos]);
 
-  // 结束拖拽：记录本次是否拖动（供 click 判断），并保存位置
+  // 结束拖拽：记录本次是否拖动（供 click 判断），保存位置并让倾斜回正
   const onPointerUp = useCallback(() => {
     const d = dragRef.current;
     justDraggedRef.current = d?.moved ?? false;
     dragRef.current = null;
     setDragging(false);
+    setTilt(0);
     window.removeEventListener("pointermove", onPointerMove);
     if (d?.moved && posRef.current) {
       try {
@@ -182,11 +304,13 @@ export default function Sprite() {
     }
   }, [onPointerMove]);
 
-  /** 按下球体：开始拖拽（并监听全局指针事件） */
+  /** 按下角色：开始拖拽（并监听全局指针事件） */
   function onPointerDown(e: React.PointerEvent) {
     if (!posRef.current) return;
     justDraggedRef.current = false; // 新一次交互，先重置
     dragRef.current = { startX: e.clientX, startY: e.clientY, origin: posRef.current, moved: false };
+    tiltXRef.current = e.clientX;
+    tiltTimeRef.current = performance.now();
     setDragging(true);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp, { once: true });
@@ -201,22 +325,31 @@ export default function Sprite() {
     toggle();
   }
 
-  /** 由球位置推算面板默认位置（置于球左上方并限制在视口内） */
-  function derivedPanelPos(p: Pt): Box {
-    return {
-      left: Math.min(Math.max(8, p.x + BALL - 360), window.innerWidth - 368),
-      top: Math.max(8, p.y - 472),
-    };
-  }
-
-  /** 拖动面板标题栏：更新面板位置（仅存内存，刷新即复位） */
+  // 拖动面板标题栏：更新面板位置，并把角色挤开（仅存内存，刷新即复位）
   const onPanelPointerMove = useCallback((e: PointerEvent) => {
     const d = panelDragRef.current;
     if (!d) return;
-    setPanelPos({
-      left: Math.min(Math.max(8, d.origin.left + (e.clientX - d.startX)), window.innerWidth - 368),
-      top: Math.min(Math.max(8, d.origin.top + (e.clientY - d.startY)), window.innerHeight - 468),
-    });
+    const next = {
+      left: Math.min(
+        Math.max(8, d.origin.left + (e.clientX - d.startX)),
+        window.innerWidth - PANEL_W - 8,
+      ),
+      top: Math.min(
+        Math.max(8, d.origin.top + (e.clientY - d.startY)),
+        window.innerHeight - PANEL_H - 8,
+      ),
+    };
+    setPanelPos(next);
+    // 面板可以挤开角色：被挤开的坐标只更新内存，不写 localStorage
+    const p = posRef.current;
+    if (p) {
+      const rect = panelRect(next);
+      if (overlaps(bodyRect(p), rect)) {
+        const pushed = pushOut(p, rect, safeBottomRef.current);
+        posRef.current = pushed;
+        setPos(pushed);
+      }
+    }
   }, []);
 
   const onPanelPointerUp = useCallback(() => {
@@ -242,10 +375,17 @@ export default function Sprite() {
       ? [...baseParticles, ...baseParticles.map((p) => ({ ...p, dx: p.dx * 1.4, dy: p.dy * 1.4, delay: p.delay + 0.12 }))]
       : baseParticles;
 
-  // 面板位置：优先用户拖动的坐标，否则置于球左上方（pos 初始化后才会渲染面板）
+  // 面板位置：优先用户拖动的坐标，否则置于角色左上方（pos 初始化后才会渲染面板）
   const panelStyle = panelPos ?? (pos ? derivedPanelPos(pos) : undefined);
 
-  const ballStyle = pos ? { left: pos.x, top: pos.y } : undefined;
+  // 角色外框样式（位置 + 尺寸 + 倾斜角变量）
+  const petStyle = {
+    left: pos?.x ?? undefined,
+    top: pos?.y ?? undefined,
+    width: PET_W,
+    height: PET_BOX_H,
+    "--pet-angle": `${tilt}deg`,
+  } as CSSProperties;
 
   return (
     <>
@@ -296,8 +436,8 @@ export default function Sprite() {
             key={i}
             className="pointer-events-none fixed z-[59] rounded-full"
             style={{
-              left: pos.x + BALL / 2,
-              top: pos.y + BALL / 2,
+              left: pos.x + CORE.dx,
+              top: pos.y + CORE.dy,
               width: p.size,
               height: p.size,
               translateX: "-50%",
@@ -310,7 +450,7 @@ export default function Sprite() {
           />
         ))}
 
-      {/* 展开面板：窄屏为底部抽屉（含遮罩），宽屏为球旁的浮动面板 */}
+      {/* 展开面板：窄屏为底部抽屉（含遮罩），宽屏为角色旁的浮动面板 */}
       <AnimatePresence>
         {open && isMobile && (
           <motion.div
@@ -381,40 +521,33 @@ export default function Sprite() {
         )}
       </AnimatePresence>
 
-      {/* 可拖拽的发光蓝球 */}
-      <motion.button
-        type="button"
-        onPointerDown={onPointerDown}
-        onClick={onBallClick}
-        style={ballStyle}
-        aria-label="小精灵"
-        className={`fixed z-[60] h-14 w-14 touch-none select-none rounded-full outline-none ${
-          ballStyle ? "" : "bottom-6 right-6"
+      {/*
+        可拖拽的小精灵角色：
+        外框 = 造型 + 动作余量（透明、不拦事件），命中区只覆盖角色主体（见 SPEC.md §3）。
+        层级 z-[62]：高于桌面面板（z-60），低于窄屏遮罩（z-65）与抽屉（z-70）。
+      */}
+      <div
+        className={`pointer-events-none fixed z-[62] touch-none select-none ${
+          pos ? "" : "bottom-6 right-6"
         }`}
+        style={petStyle}
       >
-        {/* 外层呼吸光晕 */}
-        <motion.span
-          className="absolute inset-0 rounded-full"
+        <PetArt className="pointer-events-none absolute inset-0 h-full w-full text-star" />
+        <button
+          type="button"
+          onPointerDown={onPointerDown}
+          onClick={onBallClick}
+          aria-label="小精灵：点击打开面板，拖动可移动"
+          title="点击打开 · 拖动移动"
+          className="pointer-events-auto absolute cursor-grab touch-none outline-none active:cursor-grabbing"
           style={{
-            background:
-              "radial-gradient(circle, rgb(var(--accent) / 0.55) 0%, rgb(var(--accent-deep) / 0) 70%)",
+            left: `${HIT.left}%`,
+            top: `${HIT.top}%`,
+            width: `${HIT.w}%`,
+            height: `${HIT.h}%`,
           }}
-          animate={reduceMotion ? undefined : { scale: [1, 1.35, 1], opacity: [0.6, 0.95, 0.6] }}
-          transition={reduceMotion ? undefined : { duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
         />
-        {/* 半透明球体（青蓝 / 电光蓝） */}
-        <motion.span
-          className="absolute inset-[10px] rounded-full border border-white/30"
-          style={{
-            background:
-              "radial-gradient(circle at 35% 30%, rgb(var(--sky-star) / 0.95), rgb(var(--accent) / 0.55) 45%, rgb(var(--accent-deep) / 0.5) 100%)",
-            boxShadow:
-              "0 0 18px 6px rgb(var(--accent) / 0.7), inset 0 0 12px rgb(var(--sky-star) / 0.55)",
-          }}
-          animate={reduceMotion ? undefined : { scale: [1, 1.08, 1] }}
-          transition={reduceMotion ? undefined : { duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
-        />
-      </motion.button>
+      </div>
     </>
   );
 }

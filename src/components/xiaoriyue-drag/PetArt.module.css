@@ -1,0 +1,21 @@
+/*
+ * 小精灵美术样式（姿态层与动作）。
+ * 宿主只负责写入 --pet-angle（deg，±6），这里把它施加到姿态层，并做 200ms 回正过渡。
+ * 减少动态效果时全部关闭。
+ *
+ * 选择器约定：包内动效一律用「CSS Modules 局部类名（JSX 里 styles.xxx 引用）」，
+ * 或者 :global(#pet-xxx)；不要写裸 #id（会被 CSS Modules 改写导致匹配不到）。
+ */
+
+.character {
+  transform-origin: 235px 265px;
+  transform: rotate(var(--pet-angle, 0deg));
+  transition: transform 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .character {
+    transform: none;
+    transition: none;
+  }
+}
