@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -9,6 +9,7 @@ import {
   RAIL_CROSS,
   RAIL_MAIN,
   RAIL_MAIN_COMPACT,
+  RAIL_COMPACT_BELOW,
   TRACK_GAP,
   flowTilt,
   tileJitter,
@@ -18,6 +19,7 @@ import {
 import { useElementSize } from "@/lib/use-element-size";
 import { coverStyle } from "@/lib/crop";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
+import { useTrackFlow } from "@/lib/use-track-flow";
 import type { MemoryCard } from "@/lib/db/queries";
 import TimelineRail, { VerticalTimelineRail } from "./TimelineRail";
 
@@ -25,8 +27,6 @@ import TimelineRail, { VerticalTimelineRail } from "./TimelineRail";
 const CARD_NORMAL = { w: 200, h: 133 };
 const CARD_COMPACT = { w: 150, h: 100 };
 const CARD_TINY = { w: 120, h: 80 };
-/** 自动流动速度（px/s） */
-const FLOW_SPEED = 12;
 /** 卡片标题占用的纵向长度（含间距，px）：算轨道步长用 */
 const CARD_CAPTION = 26;
 /** 「大半径滚筒」半径系数：相对视口长边，越大越接近平面流动 */
@@ -87,10 +87,23 @@ function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }
 }
 
 /**
- * 记忆展示总入口：宽屏=上下两行横向轨道，窄屏=左右两列纵向轨道。
- * 两轨总容量内直接平铺；超出则转为「大半径滚筒」的流动形态。
+ * 记忆展示总入口：宽屏=横向轨道（默认上下两行），窄屏=左右两列纵向轨道。
+ * 轨道总容量内直接平铺；超出则转为「大半径滚筒」的流动形态。
  */
-export default function MemoryCylinder({ memories }: { memories: MemoryCard[] }) {
+export default function MemoryCylinder({
+  memories,
+  rows = 2,
+  basisH = 0,
+  railCompact,
+}: {
+  memories: MemoryCard[];
+  /** 宽屏轨道数：当前类别「既有子类别又有记忆」时用 1（单排），否则 2 */
+  rows?: 1 | 2;
+  /** 整页可用高度（header 以下的区域）：只用来选卡片档位，见下 */
+  basisH?: number;
+  /** 星轨是否用压缩档（由宿主按「有子类别时那块的高度」统一判定，两页一致） */
+  railCompact?: boolean;
+}) {
   const isMobile = useIsMobile();
   const [ref, size] = useElementSize<HTMLDivElement>();
 
@@ -102,20 +115,26 @@ export default function MemoryCylinder({ memories }: { memories: MemoryCard[] })
     );
   }
 
-  // 窄屏竖屏 → 纵向轨道（左右两列）；宽屏/横屏 → 横向轨道（上下两行）
+  // 窄屏竖屏 → 纵向轨道（左右两列，空间紧张不单排）；宽屏/横屏 → 横向轨道
   const vertical = isMobile;
-  // 卡片档位：手机横屏（很矮）→ 迷你；窄屏/较矮 → 紧凑；其余 → 常规
+  const tracks = vertical ? 2 : rows;
+  // 卡片档位：手机横屏（很矮）→ 迷你；窄屏/较矮 → 紧凑；其余 → 常规。
+  // 基准用「整页可用高度」而不是本区块高度——有子类别时本区块只占 7/10，
+  // 按自身高度算会掉档，卡片比「只有记忆」时小一圈（单排本来也放得下常规档）。
+  const basis = basisH > 0 ? basisH : size.h;
   const tier: CardTier =
-    size.h > 0 && size.h < 420
+    basis > 0 && basis < 420
       ? "tiny"
-      : isMobile || (size.h > 0 && size.h < 520)
+      : isMobile || (basis > 0 && basis < 520)
         ? "compact"
         : "normal";
   const card = tier === "tiny" ? CARD_TINY : tier === "compact" ? CARD_COMPACT : CARD_NORMAL;
+  // 星轨高度：宿主给的口径优先；没给时退回「按本区块高度」（旧行为）
+  const railCompactNow = railCompact ?? (size.h > 0 && size.h < RAIL_COMPACT_BELOW);
 
   const mainAvail = vertical ? size.h : size.w;
   const cardMain = vertical ? card.h : card.w;
-  // 每条轨道同屏最多 PER_TRACK_MAX 张（两轨合计 ≤ 6）：超过则整体转为流动形态
+  // 每条轨道同屏最多 PER_TRACK_MAX 张：双排合计 ≤ 6，单排（有子类别时）≤ 3
   const capacity =
     mainAvail > 0
       ? Math.min(
@@ -123,45 +142,65 @@ export default function MemoryCylinder({ memories }: { memories: MemoryCard[] })
           PER_TRACK_MAX,
         )
       : PER_TRACK_MAX;
-  const threshold = capacity * 2;
+  const threshold = capacity * tracks;
 
   return (
     <div ref={ref} className="absolute inset-0">
       {size.w > 0 &&
         (memories.length <= threshold ? (
-          <TileBoard memories={memories} card={card} tier={tier} vertical={vertical} size={size} />
+          <TileBoard
+            memories={memories}
+            card={card}
+            tier={tier}
+            vertical={vertical}
+            tracks={tracks}
+            railCompact={railCompactNow}
+            size={size}
+          />
         ) : (
-          <FlowTracks memories={memories} card={card} tier={tier} vertical={vertical} size={size} />
+          <FlowTracks
+            memories={memories}
+            card={card}
+            tier={tier}
+            vertical={vertical}
+            tracks={tracks}
+            railCompact={railCompactNow}
+            size={size}
+          />
         ))}
     </div>
   );
 }
 
-/** 双轨平铺：每轨均匀铺开 + 大幅随机偏移 + 轻微旋转 + 缓缓浮动 */
+/** 多轨平铺：每轨均匀铺开 + 大幅随机偏移 + 轻微旋转 + 缓缓浮动 */
 function TileBoard({
   memories,
   card,
   tier,
   vertical,
+  tracks,
+  railCompact,
   size,
 }: {
   memories: MemoryCard[];
   card: CardSize;
   tier: CardTier;
   vertical: boolean;
+  tracks: number;
+  railCompact: boolean;
   size: Size;
 }) {
   const router = useRouter();
   // 降载：reduced-motion 下关闭卡片浮动动画
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
-  // 交替分配到两轨，并记录每张卡片在本轨内的序号
+  // 交替分配到各轨，并记录每张卡片在本轨内的序号
   const placed: { m: MemoryCard; i: number; track: number; k: number; cnt: number }[] = [];
-  const counts = [0, 0];
-  for (let i = 0; i < memories.length; i++) counts[i % 2]++;
-  const seen = [0, 0];
+  const counts = Array.from({ length: tracks }, () => 0);
+  for (let i = 0; i < memories.length; i++) counts[i % tracks]++;
+  const seen = Array.from({ length: tracks }, () => 0);
   memories.forEach((m, i) => {
-    const track = i % 2;
+    const track = i % tracks;
     placed.push({ m, i, track, k: seen[track]++, cnt: Math.max(1, counts[track]) });
   });
 
@@ -172,15 +211,17 @@ function TileBoard({
   const pad = TRACK_GAP * 1.5;
   const avail = Math.max(1, mainLen - pad * 2);
   // 交叉方向可用区：纵向轨道避开左侧星轨，横向轨道避开底部星轨
-  const railMain = size.h < 420 ? RAIL_MAIN_COMPACT : RAIL_MAIN;
+  const railMain = railCompact ? RAIL_MAIN_COMPACT : RAIL_MAIN;
   const zoneStart = vertical ? RAIL_CROSS : 0;
   const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
-  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross);
+  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross, tracks);
 
   // 只有 1~2 段时尽量居中：1 段完全居中；2 段向中心收拢（间距约 1.5 倍卡宽）
   const zoneCenter = zoneStart + zoneLen / 2;
   const centered = memories.length <= 2;
   const crossOf = (track: number): number => {
+    // 单排：所有卡片同一行，靠轨道内的横向错位分开
+    if (tracks <= 1) return zoneCenter;
     if (memories.length === 1) return zoneCenter;
     if (memories.length === 2) {
       // 间距取 1.5 倍卡宽，但不超出可用区（窄屏空间有限时自动收拢）
@@ -202,7 +243,7 @@ function TileBoard({
         const cell = avail / cnt;
         const slack = centered ? avail * 0.25 : Math.max(0, cell - cardMain);
         // 第 2 轨整体错开半张卡：保证两轨同一索引不会排成一条线
-        const stagger = track === 1 ? (cardMain + TRACK_GAP) * 0.5 : 0;
+        const stagger = tracks > 1 && track === 1 ? (cardMain + TRACK_GAP) * 0.5 : 0;
         const alongRaw =
           pad + ((k + 0.5) / cnt) * avail + stagger + j.along * slack * 0.9;
         const along = Math.min(mainLen - pad * 0.4, Math.max(pad * 0.4, alongRaw));
@@ -254,29 +295,31 @@ function TileBoard({
       {vertical ? (
         <VerticalTimelineRail memories={memories} />
       ) : (
-        <TimelineRail memories={memories} compact={size.h < 420} />
+        <TimelineRail memories={memories} compact={railCompact} />
       )}
     </>
   );
 }
 
-/** 双轨流动：大半径滚筒（近似平面），只渲染可见卡片，两端渐隐 */
+/** 多轨流动：大半径滚筒（近似平面），只渲染可见卡片，两端渐隐 */
 function FlowTracks({
   memories,
   card,
   tier,
   vertical,
+  tracks,
+  railCompact,
   size,
 }: {
   memories: MemoryCard[];
   card: CardSize;
   tier: CardTier;
   vertical: boolean;
+  tracks: number;
+  railCompact: boolean;
   size: Size;
 }) {
   const router = useRouter();
-  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const mainLen = vertical ? size.h : size.w;
   const crossLen = vertical ? size.w : size.h;
@@ -287,98 +330,38 @@ function FlowTracks({
   // 半径设得远大于屏幕：滚筒退化为接近平面的流动，只在两端留下很轻的弧度
   const radius = Math.max(mainLen * RADIUS_FACTOR, 1200);
   // 交叉方向可用区：纵向轨道避开左侧星轨，横向轨道避开底部星轨
-  const railMain = size.h < 420 ? RAIL_MAIN_COMPACT : RAIL_MAIN;
+  const railMain = railCompact ? RAIL_MAIN_COMPACT : RAIL_MAIN;
   const zoneStart = vertical ? RAIL_CROSS : 0;
   const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
-  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross);
+  const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross, tracks);
 
-  const offsetRef = useRef(0);
-  const velocityRef = useRef(0);
-  const draggingRef = useRef(false);
-  const lastPosRef = useRef(0);
-  const movedRef = useRef(false);
-  const [offset, setOffset] = useState(0);
-  const [ready, setReady] = useState(false);
+  // 自走 + 拖动 + 惯性由公共 hook 提供；这里只算每张卡片的落点
+  const {
+    containerRef,
+    offset,
+    ready,
+    onPointerDown,
+    onPointerMove,
+    endDrag,
+    justDragged,
+  } = useTrackFlow({ mainLen, vertical });
 
-  // 每次进入随机初始位置（客户端生成），随后淡入，避免看到跳变
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      offsetRef.current = Math.random() * step * 8;
-      setOffset(offsetRef.current);
-      setReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [step]);
-
-  // 自动流动：offset 递减（横向向左 / 纵向向上），时间由旧至新
-  useEffect(() => {
-    if (reduceMotion || !ready) return;
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      if (!draggingRef.current) {
-        if (Math.abs(velocityRef.current) > 1) {
-          // 松手后的惯性：与拖动同向
-          offsetRef.current += velocityRef.current * dt;
-          velocityRef.current *= 0.94;
-        } else {
-          velocityRef.current = 0;
-          offsetRef.current -= FLOW_SPEED * dt;
-        }
-        setOffset(offsetRef.current);
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [reduceMotion, ready]);
-
-  /** 拖动：沿轨道方向跟手移动 */
-  function onPointerDown(e: React.PointerEvent) {
-    draggingRef.current = true;
-    movedRef.current = false;
-    lastPosRef.current = vertical ? e.clientY : e.clientX;
-    velocityRef.current = 0;
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!draggingRef.current) return;
-    const p = vertical ? e.clientY : e.clientX;
-    const d = p - lastPosRef.current;
-    lastPosRef.current = p;
-    if (Math.abs(d) > 2) {
-      movedRef.current = true;
-      containerRef.current?.setPointerCapture(e.pointerId);
-    }
-    offsetRef.current += d;
-    velocityRef.current = d * 60;
-    setOffset(offsetRef.current);
-  }
-
-  function endDrag(e: React.PointerEvent) {
-    draggingRef.current = false;
-    if (containerRef.current?.hasPointerCapture(e.pointerId)) {
-      containerRef.current.releasePointerCapture(e.pointerId);
-    }
-  }
-
+  /** 刚拖过就别把这次抬手当成点击 */
   function openMemory(id: string) {
-    if (movedRef.current) return;
+    if (justDragged()) return;
     router.push(`/memory/${id}`);
   }
 
   // 计算可见卡片（含一张卡缓冲，滑动时不闪）。
   // 稀疏化后 span 远大于屏幕，循环边界的跳变发生在屏幕外（且被两端渐隐遮住），不会看到瞬移。
-  const counts = [0, 0];
-  for (let i = 0; i < memories.length; i++) counts[i % 2]++;
-  const seen = [0, 0];
+  const counts = Array.from({ length: tracks }, () => 0);
+  for (let i = 0; i < memories.length; i++) counts[i % tracks]++;
+  const seen = Array.from({ length: tracks }, () => 0);
   const nodes: { key: string; m: MemoryCard; main: number; cross: number; rot: number }[] = [];
   // 屏外提前渲染一段距离：让图片有时间加载完成，卡片滑入时不再「突然出现」
   const buffer = Math.max(step, mainLen * 0.25);
   memories.forEach((m, i) => {
-    const track = i % 2;
+    const track = i % tracks;
     const k = seen[track]++;
     const cnt = Math.max(1, counts[track]);
     const span = cnt * step;
@@ -461,7 +444,7 @@ function FlowTracks({
       {vertical ? (
         <VerticalTimelineRail memories={memories} activeId={activeId} showCursor />
       ) : (
-        <TimelineRail memories={memories} activeId={activeId} showCursor compact={size.h < 420} />
+        <TimelineRail memories={memories} activeId={activeId} showCursor compact={railCompact} />
       )}
     </div>
   );

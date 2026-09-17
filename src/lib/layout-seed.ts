@@ -101,13 +101,24 @@ export const TRACK_GAP = 24;
 /** 横向轨道下方星轨占用高度（px）：常规 / 矮容器（手机横屏）压缩版 */
 export const RAIL_MAIN = 140;
 export const RAIL_MAIN_COMPACT = 64;
+/** 星轨切成压缩版的高度阈值（px）：低于它就压扁给卡片让位 */
+export const RAIL_COMPACT_BELOW = 420;
+/**
+ * 记忆区在有子类别时占整页可用高度的比例（对应 StarfieldPage 的 `flex-[7]` / 10）。
+ *
+ * 星轨高度的判据要用「有子类别时那块的高度」而不是本区块高度，两种页面才会一致；
+ * 改动 flex-[3]/flex-[7] 时必须同步这里。
+ */
+export const MEMORY_FLEX_RATIO = 0.7;
 /** 纵向轨道左侧星轨占用宽度（px） */
 export const RAIL_CROSS = 56;
 /** 每条轨道同屏最多完整卡片数（两轨合计不超过 6 张） */
 export const PER_TRACK_MAX = 3;
 
 /**
- * 两条轨道在交叉方向上的中心位置（px）。
+ * 各条轨道在交叉方向上的中心位置（px）。
+ * tracks=2 为对称两轨（宽屏上下两行 / 窄屏左右两列）；
+ * tracks=1 为单轨居中（宽屏 + 当前类别既有子类别又有记忆时用）。
  * @param zoneStart 可用区起点（已避开星轨）
  * @param zoneLen   可用区长度
  * @param cardCross 卡片在交叉方向的尺寸
@@ -116,11 +127,13 @@ export function trackCrossPositions(
   zoneStart: number,
   zoneLen: number,
   cardCross: number,
-): [number, number] {
+  tracks = 2,
+): number[] {
   // 两侧各留 6px 余量：卡片有轻微旋转/缩放，避免贴边被裁
   const start = zoneStart + 6;
   const len = Math.max(cardCross, zoneLen - 12);
   const center = start + len / 2;
+  if (tracks <= 1) return [center];
   // 优先保证两轨不重叠；空间实在不足时退让为「不越界」（可能轻微重叠）
   const half = Math.min(
     Math.max(len * 0.25, (cardCross + TRACK_GAP) / 2),
@@ -128,6 +141,36 @@ export function trackCrossPositions(
   );
   return [center - half, center + half];
 }
+
+/* ---------------------------------------------------------------------------
+ * 星图上的类别星星：同屏容量随屏宽自适应，超出则换成「流动轨道」
+ * ------------------------------------------------------------------------- */
+
+/** 同屏星星数量的下限 */
+export const STAR_CAP_MIN = 3;
+/** 同屏星星数量上限：只有子分类时 20（在参考宽度下） */
+export const STAR_CAP_MAX = 20;
+/** 同屏星星数量上限：既有子分类又有记忆时 10（上面还有记忆区，别太密） */
+export const STAR_CAP_MAX_WITH_MEMORIES = 10;
+/** 上限的参考宽度（px）：20 / 10 都是按这个宽度定的，其它宽度等比收敛 */
+export const STAR_CAP_REF_WIDTH = 1440;
+
+/**
+ * 给定星区宽度与上限，算出同屏最多放几颗星（超出走流动轨道）。
+ *
+ * 上限是在参考宽度（`STAR_CAP_REF_WIDTH`）下的口径，实际容量按屏宽**等比**收敛：
+ * 1440 宽 → 20 / 10，2000 宽仍封顶 20 / 10，窄屏 1100 → 15 / 8，390 → 5 / 3。
+ */
+export function starCapacity(
+  width: number,
+  maxCap = STAR_CAP_MAX,
+  refWidth = STAR_CAP_REF_WIDTH,
+): number {
+  if (width <= 0) return maxCap;
+  const scaled = Math.round((maxCap * width) / refWidth);
+  return Math.min(maxCap, Math.max(STAR_CAP_MIN, scaled));
+}
+
 
 /** 沿轨道方向可容纳的卡片数：用于平铺排布与「平铺/流动」判定 */
 export function trackCapacity(availLength: number, cardSize: number): number {

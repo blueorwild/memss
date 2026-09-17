@@ -15,6 +15,8 @@ import MoreMenu from "@/components/ui/more-menu";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
 import { shouldIgnorePageShortcut } from "@/lib/dom";
+import { useElementSize } from "@/lib/use-element-size";
+import { RAIL_COMPACT_BELOW, MEMORY_FLEX_RATIO } from "@/lib/layout-seed";
 import { useSpriteStore } from "@/store/sprite";
 import StarBackground from "./StarBackground";
 import Breadcrumb from "./Breadcrumb";
@@ -40,6 +42,13 @@ export default function StarfieldPage({
   const router = useRouter();
   const navRequest = useSpriteStore((s) => s.navRequest);
   const clearNavRequest = useSpriteStore((s) => s.clearNavRequest);
+  // 整页可用高度（header 以下的 flex-1 区）：记忆卡片档位按它算，
+  // 这样「有子类别（记忆区只占 7/10）」与「只有记忆（占满）」的卡片尺寸一致
+  const [roomRef, roomSize] = useElementSize<HTMLDivElement>();
+  // 星轨（底部时间弧）也按「有子类别时那块的高度」判定压缩档：两种页面高度一致。
+  // 仅宽屏有意义——窄屏是竖向星轨，占位用 RAIL_CROSS。
+  const railCompact =
+    roomSize.h > 0 && roomSize.h * MEMORY_FLEX_RATIO < RAIL_COMPACT_BELOW;
   const [zoom, setZoom] = useState<{ id: string; x: number; y: number } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
@@ -144,7 +153,7 @@ export default function StarfieldPage({
           )}
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div ref={roomRef} className="flex min-h-0 flex-1 flex-col">
           {hasChildren && (
             <section
               className={hasMemories ? "relative min-h-0 flex-[3]" : "relative min-h-0 flex-1"}
@@ -153,16 +162,21 @@ export default function StarfieldPage({
                 items={categories}
                 onSelect={onSelectCategory}
                 zoomedId={zoom?.id ?? null}
-                mode={hasMemories ? "arc" : "scatter"}
+                withMemories={hasMemories}
               />
             </section>
           )}
 
           {hasMemories && (
-            <section
-              className={hasChildren ? "relative min-h-0 flex-[7]" : "relative min-h-0 flex-1"}
-            >
-              <MemoryCylinder memories={memories} />
+            <section className={hasChildren ? "relative min-h-0 flex-[7]" : "relative min-h-0 flex-1"}>
+              {/* 有子类别时记忆区只占 7/10，横向轨道压成单排才够放；卡片档位按整页可用高度算，
+                  保证与「只有记忆」时同尺寸（见 basisH） */}
+              <MemoryCylinder
+                memories={memories}
+                rows={hasChildren ? 1 : 2}
+                basisH={roomSize.h}
+                railCompact={railCompact}
+              />
             </section>
           )}
 
