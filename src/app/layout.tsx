@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "回忆星空",
+  title: "MemSS",
   description: "以星空承载个人回忆，并常驻可对话的悬浮小精灵。",
 };
 

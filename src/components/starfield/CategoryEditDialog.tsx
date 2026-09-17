@@ -12,7 +12,7 @@ const btnCls =
 const primaryCls =
   "rounded-full bg-accent-deep/80 px-5 py-2.5 text-sm text-white transition-colors hover:bg-accent-deep disabled:opacity-40";
 
-/** 类别完整路径（含根「地球」），用于父级下拉的显示文案 */
+/** 类别完整路径（含根节点），用于父级下拉的显示文案 */
 function pathLabel(id: string, byId: Map<string, Category>): string {
   const names: string[] = [];
   let cur = byId.get(id);

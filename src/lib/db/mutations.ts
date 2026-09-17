@@ -5,6 +5,7 @@ import { db } from "./index";
 import { categories, media, memories } from "./schema";
 import type { Memory } from "./schema";
 import { getCategory } from "./queries";
+import { isRootCategory } from "../category-path";
 
 /** 媒体文件根目录（与 /api/media 路由一致） */
 const MEDIA_ROOT = path.join(process.cwd(), "media");
@@ -52,7 +53,7 @@ export function updateCategory(
 
 /**
  * 重算某类别子树内所有回忆的 location。
- * location 由类别路径派生（去掉根「地球」），改名 / 移动后必须重算，否则与面包屑不一致。
+ * location 由类别路径派生（去掉根节点），改名 / 移动后必须重算，否则与面包屑不一致。
  * 返回受影响的回忆条数。
  */
 export function resyncSubtreeLocation(rootId: string): number {
@@ -72,7 +73,7 @@ export function resyncSubtreeLocation(rootId: string): number {
     const names: string[] = [];
     let cur = byId.get(categoryId);
     while (cur) {
-      if (cur.name !== "地球") names.unshift(cur.name);
+      if (!isRootCategory(cur)) names.unshift(cur.name);
       cur = cur.parentId ? byId.get(cur.parentId) : undefined;
     }
     return names.length > 0 ? names.join(" / ") : null;

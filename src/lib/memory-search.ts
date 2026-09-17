@@ -1,4 +1,5 @@
 import { attachCovers, listCategories, listMemories } from "./db/queries";
+import { isRootCategory } from "./category-path";
 import type { Memory, MemoryCover } from "./db/queries";
 
 /**
@@ -33,7 +34,7 @@ export type MemorySearchItem = {
   date: string | null;
   location: string | null;
   categoryId: string;
-  /** 类别路径（去根「地球」），如「日本 / 东京」 */
+  /** 类别路径（去根节点），如「日本 / 东京」 */
   category: string;
   cover: MemoryCover | null;
 };
@@ -71,7 +72,7 @@ export function collectMemories(categoryId?: string): Memory[] {
   return all.filter((m) => ids.has(m.categoryId));
 }
 
-/** 构建「类别 id → 路径名（去根“地球”）」映射，供检索结果附带地点/归属信息 */
+/** 构建「类别 id → 路径名（去根节点）」映射，供检索结果附带地点/归属信息 */
 export function buildCategoryPaths(): Map<string, string> {
   const cats = listCategories();
   const byId = new Map(cats.map((c) => [c.id, c]));
@@ -82,7 +83,7 @@ export function buildCategoryPaths(): Map<string, string> {
     const c = byId.get(id);
     if (!c) return "";
     const parent = c.parentId ? pathOf(c.parentId) : "";
-    const name = c.name === "地球" ? "" : c.name;
+    const name = isRootCategory(c) ? "" : c.name;
     const full = [parent, name].filter(Boolean).join(" / ");
     memo.set(id, full);
     return full;

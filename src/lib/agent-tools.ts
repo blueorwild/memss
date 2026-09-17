@@ -9,6 +9,7 @@ import {
   listMemories,
 } from "./db/queries";
 import { deleteCategoryById, deleteMemoryById, updateMemory } from "./db/mutations";
+import { isRootCategory } from "./category-path";
 import {
   SEARCH_DEFAULT_LIMIT,
   SEARCH_MAX_LIMIT,
@@ -29,11 +30,11 @@ export type ClientAction =
   | { type: "moved"; memoryId: string; path: string }
   | { type: "forgotten"; kind: "memory" | "category"; targetId: string; fallbackPath: string };
 
-/** 类别路径名（去根「地球」），用于生成记忆的 location 文本 */
+/** 类别路径名（去根节点），用于生成记忆的 location 文本 */
 function locationOfCategory(categoryId: string): string {
   return getCategoryPath(categoryId)
+    .filter((c) => !isRootCategory(c))
     .map((c) => c.name)
-    .filter((n) => n !== "地球")
     .join(" / ");
 }
 
@@ -445,7 +446,8 @@ export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked
 
         const cat = getCategory(targetId);
         if (!cat) return { ok: false, message: "该类别不存在。" };
-        if (!cat.parentId) return { ok: false, message: "根类别「地球」不可删除。" };
+        // 这里用 !parentId 而非 isRootCategory()：保留 TS 对收窄，下方 getCategoryPath 需要 string
+        if (!cat.parentId) return { ok: false, message: "根类别不可删除。" };
 
         const memoryCount = getSubtreeMemoryCounts().get(cat.id) ?? 0;
         const options = memoryCount > 0 ? ["move", "purge"] : ["purge"];

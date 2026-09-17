@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import type { Category } from "@/lib/db/queries";
 import { Combobox } from "./combobox";
 
-/** 最大层级（含地球）：地球-国家-省-市-自建 */
+/** 最大层级（含根节点）：根-国家-省-市-自建 */
 const MAX_DEPTH = 5;
 
 /** 计算某类别深度（含自身） */
@@ -19,7 +19,7 @@ function depthOf(id: string, byId: Map<string, Category>): number {
 }
 
 /**
- * 类别级联选择器（类别即地点）：从「地球」起逐级下钻，
+ * 类别级联选择器（类别即地点）：从根节点（MemSS）起逐级下钻，
  * 任意层级都可选中（可挂回忆），也可在任一层新建子类别（最多 5 级）。
  */
 export default function CategoryPicker({
@@ -81,7 +81,7 @@ export default function CategoryPicker({
 
   return (
     <div className="space-y-2">
-      {/* 根节点（地球）本身也可作为归属 */}
+      {/* 根节点本身也可作为归属 */}
       <button
         type="button"
         onClick={() => onChange(root.id)}

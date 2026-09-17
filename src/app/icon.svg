@@ -1,0 +1,66 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="32"
+  height="32"
+  viewBox="92 90 292 292"
+  fill="none"
+  role="img"
+  aria-label="MemSS"
+>
+  <!--
+    标签页图标：小精灵 idle 态的头部特写（去掉手 / 尾 / 影子，16px 下才看得清）。
+    取自 src/components/xiaoriyue-drag/PetArt.tsx 的 idle 造型，路径坐标未改，
+    只把描边按「小尺寸可读性」加粗；颜色为 token 字面量：
+    线稿 = sky-star rgb(220 235 255)，光点 = warm-glow #ffeeB4，底 = sky-void #05060a。
+  -->
+  <defs>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#ffeeB4" stop-opacity=".95" />
+      <stop offset=".38" stop-color="#ffeeB4" stop-opacity=".85" />
+      <stop offset=".7" stop-color="#ffeeB4" stop-opacity=".45" />
+      <stop offset="1" stop-color="#ffeeB4" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect x="92" y="90" width="292" height="292" rx="52" fill="#05060a" />
+
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- 天线 + 顶端光点 -->
+    <path
+      d="M272 167 C270 130 303 111 326 120 Q342 126 337 142"
+      stroke="#dcebff"
+      stroke-width="18"
+    />
+    <circle cx="337" cy="142" r="34" fill="url(#glow)" stroke="none" />
+    <circle cx="337" cy="142" r="11" fill="#ffeeB4" stroke="none" />
+
+    <!-- 头壳 + 内层描边 -->
+    <path
+      d="M143 176 C188 163 285 154 321 168 C349 179 361 210 365 253 C370 295 359 330 331 340 C285 358 184 363 144 348 C115 337 107 306 107 264 C106 222 114 187 143 176 Z"
+      stroke="#dcebff"
+      stroke-width="20"
+    />
+    <path
+      d="M150 195 C190 184 280 176 314 188 C334 196 343 220 346 254 C349 286 342 312 320 320 C280 335 189 340 153 329 C132 322 126 298 126 265 C125 232 131 201 150 195 Z"
+      stroke="#dcebff"
+      stroke-width="12"
+    />
+
+    <!-- 眼 + 嘴 -->
+    <path
+      d="M179 263 L179 245 Q179 236 187 236 Q195 236 195 245 L195 260"
+      stroke="#dcebff"
+      stroke-width="28"
+    />
+    <path
+      d="M272 254 L272 236 Q272 227 280 227 Q288 227 288 236 L288 251"
+      stroke="#dcebff"
+      stroke-width="28"
+    />
+    <path
+      d="M222 284 Q235 296 248 281"
+      stroke="#dcebff"
+      stroke-width="20"
+    />
+  </g>
+</svg>

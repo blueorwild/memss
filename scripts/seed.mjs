@@ -60,7 +60,7 @@ function writeMedia(fileName, buf) {
 }
 
 const categories = [
-  { id: "globe", parentId: null, name: "地球", kind: "globe", sortOrder: 0 },
+  { id: "globe", parentId: null, name: "MemSS", kind: "globe", sortOrder: 0 },
   { id: "jp", parentId: "globe", name: "日本", kind: "country", sortOrder: 0 },
   { id: "cn", parentId: "globe", name: "中国", kind: "country", sortOrder: 1 },
   { id: "tokyo", parentId: "jp", name: "东京", kind: "region", sortOrder: 0 },

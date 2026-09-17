@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getCategoryPath, listCategories } from "@/lib/db/queries";
 
-/** 最大层级（含地球）：地球-国家-省-市-自建 */
+/** 最大层级（含根节点）：根-国家-省-市-自建 */
 const MAX_DEPTH = 5;
 
 /** 返回全部类别，供上传表单的类别级联使用 */

@@ -181,7 +181,7 @@ export default function MemoryForm({
 
   const categories = useMemo(() => [...serverCategories, ...drafts], [serverCategories, drafts]);
 
-  // location 由所选类别路径自动生成（去掉根「地球」）
+  // location 由所选类别路径自动生成（去掉根节点）
   const locationText = useMemo(() => {
     if (!categoryId) return "";
     const byId = new Map(categories.map((c) => [c.id, c]));

@@ -9,7 +9,7 @@ import { getCategory, getCategoryPath, getChildren } from "@/lib/db/queries";
 
 export const runtime = "nodejs";
 
-/** 最大层级（含地球）：地球-国家-省-市-自建，与 POST /api/categories 一致 */
+/** 最大层级（含根节点）：根-国家-省-市-自建，与 POST /api/categories 一致 */
 const MAX_DEPTH = 5;
 
 /**
