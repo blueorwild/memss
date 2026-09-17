@@ -248,9 +248,12 @@
 }
 .closedEye,
 .spiralEye,
+.squintEye,
 .pout,
+.mouthThink,
 .roundMouth,
 .brows,
+.browsThink,
 .blush,
 .question,
 .thoughts,
@@ -438,6 +441,17 @@
 .think-curious .handRight {
   animation-duration: 1.6s;
   animation-delay: -0.4s;
+}
+/* 思考脸：眯眼 + 一高一低眉 + 抿嘴，和笑脸交叉淡入。
+   循环动作没有结束态，both 保持终态即可；眨眼动效必须停掉，否则眯眼还在眨。 */
+.think-curious :is(.eyeLeft, .eyeRight) {
+  animation: none;
+}
+.think-curious :is(.normalEye, .normalMouth) {
+  animation: thinkFaceOut 220ms ease-out both;
+}
+.think-curious :is(.squintEye, .browsThink, .mouthThink) {
+  animation: thinkFaceIn 220ms ease-out both;
 }
 .think-spin {
   animation: brainPose 2s ease-in-out infinite;
@@ -788,6 +802,22 @@
     transform: scale(1);
   }
 }
+@keyframes thinkFaceIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes thinkFaceOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
 @keyframes brainPose {
   0%,
   100% {
@@ -875,9 +905,12 @@
       .smileEye,
       .closedEye,
       .spiralEye,
+      .squintEye,
       .pout,
+      .mouthThink,
       .roundMouth,
       .brows,
+      .browsThink,
       .blush,
       .question,
       .thoughts,

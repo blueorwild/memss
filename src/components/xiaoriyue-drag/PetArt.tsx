@@ -1,6 +1,9 @@
 /**
- * 小精灵美术 · 版本 v6（2026-09-17）
- * 变更：完整睡眠、交互与对话动作库；导出动作元数据，接入见 README.md。
+ * 小精灵美术 · 版本 v6.1（2026-09-17）
+ * 变更：think-curious 面部改为「眯眼 + 一高一低眉 + 抿嘴」（新增 squintEye /
+ *       pet-brows-think / mouthThink，仍保留问号与歪头扫视）；FRAME / CHAR、
+ *       既有分组 ID 与宿主变量保持不变。
+ * 上一版 v6：完整睡眠、交互与对话动作库；导出动作元数据，接入见 README.md。
  * FRAME / CHAR、既有分组 ID 与宿主变量保持不变。
  *
  * 接入约定见同目录 SPEC.md：
@@ -158,6 +161,11 @@ export default function PetArt({
                   d="M174 250 Q187 258 200 247"
                   strokeWidth="6"
                 />
+                <path
+                  className={styles.squintEye}
+                  d="M177 251 Q187 246 197 252"
+                  strokeWidth="6"
+                />
                 <g className={styles.spiralLeft}>
                   <path
                     className={styles.spiralEye}
@@ -182,6 +190,11 @@ export default function PetArt({
                   d="M267 241 Q280 249 293 238"
                   strokeWidth="6"
                 />
+                <path
+                  className={styles.squintEye}
+                  d="M270 243 Q280 238 290 244"
+                  strokeWidth="6"
+                />
                 <g className={styles.spiralRight}>
                   <path
                     className={styles.spiralEye}
@@ -199,6 +212,10 @@ export default function PetArt({
                   className={styles.pout}
                   d="M222 287 L230 282 L238 288 L248 282"
                 />
+                <path
+                  className={styles.mouthThink}
+                  d="M223 286 L235 288 L247 285"
+                />
                 <ellipse
                   className={styles.roundMouth}
                   cx="235"
@@ -209,6 +226,13 @@ export default function PetArt({
               </g>
               <g className={styles.brows} id="pet-brows">
                 <path d="M173 220 L198 230 M266 223 L290 210" />
+              </g>
+              <g
+                className={styles.browsThink}
+                id="pet-brows-think"
+                strokeWidth="4"
+              >
+                <path d="M175 226 L198 231 M266 218 L290 210" />
               </g>
               <g className={styles.blush} id="pet-blush" strokeWidth="4">
                 <path d="M154 272 L150 281 M165 270 L161 279 M298 259 L294 268 M309 257 L305 266" />

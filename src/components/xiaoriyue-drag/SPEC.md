@@ -75,6 +75,14 @@ doze / bye 结束进入 sleep；bye 不移动、不隐藏角色。think-spin 只
 新命名导出为增量接口，既有 default export、FRAME、CHAR 均不变。可选接入示例见 `README.md`。
 仅内部动作层因动作或播放编号变化重新挂载；定位和倾斜层保留。动作切入为确定起始姿态，并非任意相位混合。
 
+### v6.1 面部微调
+
+`think-curious` 由「笑脸 + 问号」改为「眯眼（`squintEye`）+ 一高一低眉（`pet-brows-think`）+
+抿嘴（`mouthThink`）」，与 `normalEye`/`normalMouth` 交叉淡入 220ms；问号与歪头扫视保留。
+只新增分组 / 类名与动画（非 breaking，接口与几何零变化），宿主无需改动。
+新增的备用面部零件**默认 `opacity: 0`**，并且必须同时出现在
+`prefers-reduced-motion: reduce` 的 `opacity: 0 !important` 白名单里，否则降载模式下会与基础脸叠画。
+
 ---
 
 ## 3. 尺寸与余量
@@ -158,6 +166,12 @@ export const CHAR = { x: 35, y: 111, w: 402, h: 304 };
 | `pet-eye-left` | 左眼 |
 | `pet-eye-right` | 右眼 |
 | `pet-mouth` | 嘴 |
+| `pet-brows` | 压眉（grumpy 用） |
+| `pet-brows-think` | 思考眉（think-curious 用，一高一低） |
+| `pet-blush` | 害羞斜线（drag-shy 用） |
+| `pet-question` | 问号（think-curious 用） |
+| `pet-thoughts` | 思考点（think-spin 用） |
+| `pet-idea-rays` | 头顶短光线（idea 用） |
 | `pet-hand-left` | 左手 |
 | `pet-hand-right` | 右手 |
 | `pet-tail` | 尾巴 |

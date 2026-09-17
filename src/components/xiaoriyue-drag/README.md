@@ -33,7 +33,7 @@ import PetArt, { ACTIONS, ACTION_DURATION_MS, type PetAction } from './PetArt';
 | `bye` | 一次 | 2600ms | 侧翅挥别，闭眼收翅入睡 / sleep |
 | `grumpy` | 一次 | 1500ms | 压眉、折线嘴、叉翅轻晃 / resume |
 | `drag-shy` | 循环 | — | 害羞斜线、眯眼、双翅交替挣动 |
-| `think-curious` | 循环 | — | 歪头、面部偏移、问号 |
+| `think-curious` | 循环 | — | 眯眼、一高一低眉、抿嘴、歪头扫视、问号 |
 | `think-spin` | 循环 | — | 螺旋眼与屏幕内思考点转动，主体不翻转 |
 | `idea` | 一次 | 1500ms | 睁亮双眼、展翅、灯珠增亮变大、短光线 / resume |
 
