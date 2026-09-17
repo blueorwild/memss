@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import MemoryListItem from "@/components/memory/MemoryListItem";
+import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
 import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
@@ -70,6 +71,8 @@ export default function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // 中止控制器：用于「停止」按钮
   const abortRef = useRef<AbortController | null>(null);
+  // 本次请求的角色动作 id（小精灵思考/顿悟状态机用；卸载或关闭后旧 id 自动失效）
+  const petReqRef = useRef(0);
   // 上一次发送的文本：用于失败后「重试」
   const lastUserRef = useRef("");
 
@@ -142,6 +145,14 @@ export default function ChatPanel() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, toolStatus]);
+
+  // 面板卸载（切视图 / 关闭）：作废在途请求，避免角色卡在思考姿态
+  useEffect(
+    () => () => {
+      usePetActor.getState().notifyRequestEnd(petReqRef.current);
+    },
+    [],
+  );
 
   /** 从当前 URL 解析所在类别 id：/star/a/b → "b" */
   function currentCategoryId(): string | undefined {
@@ -273,6 +284,9 @@ export default function ChatPanel() {
     const controller = new AbortController();
     abortRef.current = controller;
     let aborted = false;
+    // 小精灵：进入思考；首个有效正文增量才顿悟，失败/停止不顿悟
+    const petReq = usePetActor.getState().notifyRequestStart();
+    petReqRef.current = petReq;
 
     try {
       const res = await fetch("/api/agent", {
@@ -300,7 +314,13 @@ export default function ChatPanel() {
           for (const line of chunk.split("\n")) {
             if (!line.startsWith("data:")) continue;
             const payload = line.slice(5).trim();
-            if (payload) handleEvent(JSON.parse(payload) as AgentEvent);
+            if (payload) {
+              const evt = JSON.parse(payload) as AgentEvent;
+              if (evt.type === "text" && evt.delta.trim()) {
+                usePetActor.getState().notifyFirstText(petReq);
+              }
+              handleEvent(evt);
+            }
           }
           idx = buffer.indexOf("\n\n");
         }
@@ -310,6 +330,7 @@ export default function ChatPanel() {
       else setError(err instanceof Error ? err.message : "请求失败");
     } finally {
       abortRef.current = null;
+      usePetActor.getState().notifyRequestEnd(petReq);
       setStreaming(false);
       setToolStatus(null);
       // 空文本兜底：避免留下空气泡

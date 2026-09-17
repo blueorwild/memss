@@ -2,9 +2,10 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
-import PetArt, { ACTION_DURATION_MS, CHAR, FRAME, type PetAction } from "@/components/xiaoriyue-drag/PetArt";
+import PetArt, { CHAR, FRAME } from "@/components/xiaoriyue-drag/PetArt";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
+import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
 import ChatPanel from "./ChatPanel";
@@ -44,6 +45,9 @@ const POS_KEY = "sprite-pos";
 const PANEL_W = 360;
 const PANEL_H = 460;
 const PANEL_GAP = 12;
+/** 窄屏底部抽屉高度 `h-[min(78dvh,560px)]`（改这里必须同步抽屉的 class 值） */
+const DRAWER_H_RATIO = 0.78;
+const DRAWER_H_MAX = 560;
 /** 拖拽倾斜上限（度） */
 const TILT_MAX = 6;
 /** 角色与面板之间的保底间隙（px）：避免像素级贴边看起来像重叠 */
@@ -77,6 +81,12 @@ function bodyRect(p: Pt): Rect {
 /** 面板左上角坐标 → 面板矩形 */
 function panelRect(b: Box): Rect {
   return { left: b.left, top: b.top, right: b.left + PANEL_W, bottom: b.top + PANEL_H };
+}
+
+/** 窄屏抽屉顶部的 y：角色必须待在这条线之上（别被抽屉盖住） */
+function drawerTop(): number {
+  const h = window.innerHeight;
+  return h - Math.min(h * DRAWER_H_RATIO, DRAWER_H_MAX);
 }
 
 function overlaps(a: Rect, b: Rect) {
@@ -170,9 +180,9 @@ export default function Sprite() {
   const [dust, setDust] = useState<Dust[]>([]);
   // 宽屏面板左上角坐标（null = 跟随角色推算；手动拖过后与角色解耦，刷新即复位）
   const [panelPos, setPanelPos] = useState<Box | null>(null);
-  // 一次性动作：点开面板时播放 happy，播完由宿主切回 idle（见 xiaoriyue-drag/README.md）
-  const [action, setAction] = useState<PetAction>("idle");
-  const [actionKey, setActionKey] = useState(0);
+  // 动作调度：状态机与计时都在 store 里（见 store/pet-actor.ts），这里只订阅结果透传给美术包
+  const action = usePetActor((s) => s.action);
+  const actionKey = usePetActor((s) => s.actionKey);
 
   // 窄屏：面板改为底部抽屉
   const isMobile = useIsMobile();
@@ -192,14 +202,72 @@ export default function Sprite() {
   const tiltTimeRef = useRef(0);
   const trailId = useRef(0);
   const dustId = useRef(0);
-  // happy 动作计时器：重复触发需取消旧计时，卸载需清理
-  const actionTimerRef = useRef<number | null>(null);
+  // 本次拖动是否已上报 drag-shy（跨过阈值时只上报一次）
+  const petDragRef = useRef(false);
+  // 本轮面板拖动是否已造成挤开（每次碰撞会话只播一次 grumpy）
+  const petPushRef = useRef(false);
+  // 抽屉打开前的角色坐标（关闭时回原位，只存内存）；以及「让位期间是否被拖动过」
+  const preDrawerRef = useRef<Pt | null>(null);
+  const drawerMovedRef = useRef(false);
 
-  // 卸载时清掉 happy 计时，避免卸载后再 setState
+  /** 窄屏抽屉打开时把角色夹到抽屉上方的可见带内（避免滑到抽屉底下） */
+  const clampAboveDrawer = useCallback((p: Pt): Pt => {
+    const base = clampViewport(p, safeBottomRef.current);
+    const maxY = drawerTop() - PET_BOX_H - MARGIN;
+    return { ...base, y: Math.min(base.y, Math.max(MARGIN, maxY)) };
+  }, []);
+
+  // 窄屏抽屉打开 → 角色让到抽屉上方；关闭 → 回到让位前的坐标（都只改内存、不写 localStorage）
+  useEffect(() => {
+    if (!isMobile || !open) {
+      const back = preDrawerRef.current;
+      preDrawerRef.current = null;
+      if (!back || drawerMovedRef.current) return;
+      const timer = window.setTimeout(() => {
+        posRef.current = back;
+        setPos(back);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+    const tuck = window.setTimeout(() => {
+      const p = posRef.current;
+      if (!p) return;
+      preDrawerRef.current ??= p;
+      drawerMovedRef.current = false;
+      const next = clampAboveDrawer(p);
+      posRef.current = next;
+      setPos(next);
+    }, 0);
+    // 横竖屏 / 键盘顶起导致的视口高度变化：重新夹取
+    const onResize = () => {
+      const p = posRef.current;
+      if (!p) return;
+      const next = clampAboveDrawer(p);
+      posRef.current = next;
+      setPos(next);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearTimeout(tuck);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open, isMobile, clampAboveDrawer]);
+
+  // 位置初始化完成后开始 idle 生活计时；卸载时清计时并作废在途请求
+  useEffect(() => {
+    const timer = window.setTimeout(() => usePetActor.getState().notifyReady(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      usePetActor.getState().dispose();
+    };
+  }, []);
+
+  // 面板消失即「关闭」语义（✕ / 遮罩 / 表单完成 / 搜索跳转统一处理）
   useEffect(
-    () => () => {
-      if (actionTimerRef.current !== null) window.clearTimeout(actionTimerRef.current);
-    },
+    () =>
+      useSpriteStore.subscribe((s, prev) => {
+        if (prev.open && !s.open) usePetActor.getState().notifyPanelClose();
+      }),
     [],
   );
 
@@ -249,13 +317,25 @@ export default function Sprite() {
     if (!d) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
-    if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
+    if (!d.moved && Math.hypot(dx, dy) > 4) {
+      d.moved = true;
+      // 让位期间用户主动挪过角色：关闭抽屉时不再拉回原位
+      if (isMobile && open) drawerMovedRef.current = true;
+      // 只有真正拖动（而非普通点击）才进入害羞挣动
+      if (!petDragRef.current) {
+        petDragRef.current = true;
+        usePetActor.getState().notifyDragStart();
+      }
+    }
     if (!d.moved) return;
 
     let next = clampViewport({ x: d.origin.x + dx, y: d.origin.y + dy }, safeBottomRef.current);
 
-    // 面板打开时作为静态障碍：角色不得进入面板区域（沿最小位移推出后重新夹取）
-    if (open && !isMobile) {
+    if (open && isMobile) {
+      // 窄屏抽屉打开：角色只能待在抽屉上方的可见带内
+      next = clampAboveDrawer(next);
+    } else if (open && !isMobile) {
+      // 桌面面板打开时作为静态障碍：角色不得进入面板区域（沿最小位移推出后重新夹取）
       // 面板位置用「即将生效的角色位置」推导，避免与下一帧渲染的面板错位一拍
       const rect = panelRect(panelPos ?? derivedPanelPos(next));
       if (overlaps(bodyRect(next), rect)) next = pushOut(next, rect, safeBottomRef.current);
@@ -298,26 +378,31 @@ export default function Sprite() {
       setDust((arr) => [...arr.slice(-50), particle]);
       window.setTimeout(() => setDust((arr) => arr.filter((p) => p.id !== id)), DUST_LIFE * 1000 + REMOVE_OFFSET);
     }
-  }, [reduceMotion, open, isMobile, panelPos]);
+  }, [reduceMotion, open, isMobile, panelPos, clampAboveDrawer]);
 
   // 结束拖拽：记录本次是否拖动（供 click 判断），保存位置并让倾斜回正
   const onPointerUp = useCallback(() => {
     const d = dragRef.current;
-    justDraggedRef.current = d?.moved ?? false;
+    if (!d) return; // pointerup / pointercancel 可能重复触发
+    justDraggedRef.current = d.moved;
     dragRef.current = null;
     setDragging(false);
     setTilt(0);
-    window.removeEventListener("pointermove", onPointerMove);
-    if (d?.moved && posRef.current) {
+    if (petDragRef.current) {
+      petDragRef.current = false;
+      usePetActor.getState().notifyDragEnd();
+    }
+    // 抽屉打开期间的坐标是「让位」结果，不持久化（否则下次打开会从抽屉上方开始）
+    if (d.moved && posRef.current && !(isMobile && open)) {
       try {
         localStorage.setItem(POS_KEY, JSON.stringify(posRef.current));
       } catch {
         /* 存储失败忽略 */
       }
     }
-  }, [onPointerMove]);
+  }, [isMobile, open]);
 
-  /** 按下角色：开始拖拽（并监听全局指针事件） */
+  /** 按下角色：开始拖拽（全局监听交给 dragging 的 effect） */
   function onPointerDown(e: React.PointerEvent) {
     if (!posRef.current) return;
     justDraggedRef.current = false; // 新一次交互，先重置
@@ -325,20 +410,24 @@ export default function Sprite() {
     tiltXRef.current = e.clientX;
     tiltTimeRef.current = performance.now();
     setDragging(true);
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
   }
 
-  /** 播放一次开心动作：清旧计时后从头播放，播完切回 idle（美术包不自行改 props） */
-  function playHappy() {
-    if (actionTimerRef.current !== null) window.clearTimeout(actionTimerRef.current);
-    setAction("happy");
-    setActionKey((k) => k + 1);
-    actionTimerRef.current = window.setTimeout(() => {
-      setAction("idle");
-      actionTimerRef.current = null;
-    }, ACTION_DURATION_MS.happy);
-  }
+  // 拖动期间在 window 上监听移动与结束（pointerup / pointercancel / 丢捕获都要结束）
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => onPointerMove(e);
+    const end = () => onPointerUp();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("lostpointercapture", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("lostpointercapture", end);
+    };
+  }, [dragging, onPointerMove, onPointerUp]);
 
   /** 点击：仅在「非拖动」时开合面板；打开面板的那一次附带一次开心动作 */
   function onBallClick() {
@@ -346,7 +435,7 @@ export default function Sprite() {
       justDraggedRef.current = false;
       return;
     }
-    if (!open) playHappy();
+    if (!open) usePetActor.getState().notifyPanelOpen();
     toggle();
   }
 
@@ -373,12 +462,20 @@ export default function Sprite() {
         const pushed = pushOut(p, rect, safeBottomRef.current);
         posRef.current = pushed;
         setPos(pushed);
+        // 一次碰撞会话只播一次 grumpy（每帧坐标变化不算一次）
+        if (!petPushRef.current) {
+          petPushRef.current = true;
+          usePetActor.getState().notifyCollision();
+        }
+      } else {
+        petPushRef.current = false;
       }
     }
   }, []);
 
   const onPanelPointerUp = useCallback(() => {
     panelDragRef.current = null;
+    petPushRef.current = false;
     window.removeEventListener("pointermove", onPanelPointerMove);
   }, [onPanelPointerMove]);
 
@@ -552,9 +649,9 @@ export default function Sprite() {
         层级 z-[62]：高于桌面面板（z-60），低于窄屏遮罩（z-65）与抽屉（z-70）。
       */}
       <div
-        className={`pointer-events-none fixed z-[62] touch-none select-none ${
-          pos ? "" : "bottom-6 right-6"
-        }`}
+        className={`pointer-events-none fixed touch-none select-none ${
+          open && isMobile ? "z-[68]" : "z-[62]"
+        } ${pos ? "" : "bottom-6 right-6"}`}
         style={petStyle}
       >
         <PetArt
@@ -566,6 +663,11 @@ export default function Sprite() {
           type="button"
           onPointerDown={onPointerDown}
           onClick={onBallClick}
+          onPointerEnter={(e) => {
+            // 悬停问好只对鼠标生效（触摸 / 触控笔不参与）
+            if (e.pointerType === "mouse") usePetActor.getState().notifyHoverEnter();
+          }}
+          onPointerLeave={() => usePetActor.getState().notifyHoverLeave()}
           aria-label="小精灵：点击打开面板，拖动可移动"
           title="点击打开 · 拖动移动"
           className="pointer-events-auto absolute cursor-grab touch-none outline-none active:cursor-grabbing"

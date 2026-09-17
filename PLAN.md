@@ -416,3 +416,35 @@ ai_try/
 | 四角与小窗 | 拖到四角分别停在 `12,12` / `1335.4,12` / `12,805.9`（第四角被面板挡住属预期）；缩到 600×480 后仍在视口内 ✅ |
 | 移动端 375 / 390 | 外框不溢出（横向溢出 0）、层级 `pet 62 < mask 65 < drawer 70`、遮罩打开时角色中心命中页面元素（被盖住）、点遮罩可关闭 ✅ |
 | 构建 | `tsc` / `lint` / `next build`（11 路由）全绿；生产构建复测倾斜与命中区 ✅ |
+
+### 17.7 全动作接入（美术包 v6 · 宿主调度）
+美术包 v6 提供 12 个动作（`idle`/`sleep`/`drag-shy`/`think-curious`/`think-spin` 循环，其余一次性），并导出 `ACTIONS[action] = { kind, durationMs, next }`、`ACTION_DURATION_MS`、`PetAction`。**宿主侧新增 `src/store/pet-actor.ts`** 承担 README 要求的全部计时、优先级与「恢复目标」；改动文件只有 `store/pet-actor.ts`（新）、`Sprite.tsx`、`ChatPanel.tsx`——美术包、`FRAME/CHAR` 与定位 / 尺寸 / 命中区 / 避让数学零改动。
+
+- **`resume`（恢复目标）只允许持续状态**：`idle` / `sleep` / `think-curious` / `think-spin`；一次性动作结束后按 `spec.next`（`sleep` / `resume`）收尾，`after` 回调优先于 `next`（用于 `wake → greet`、`wake → happy` 这类链式）。
+- **触发口径**（本次已定）：
+  - 点角色开面板 → `happy`；睡着 / 入睡中先 `wake` 再 `happy`。其它开面板入口（点星尘记忆、ActionBar、对话工具）不播。
+  - **「面板消失」即关闭语义** → `bye` → `sleep`（✕ / 遮罩 / `MemoryForm onDone` / 搜索窄屏跳转统一走 `useSpriteStore.subscribe` 的 `open` 真→假）；`sleep` 满 30s 自然 `wake`；拖动中收到关闭指令则抬手后再 `bye`。
+  - 开局或空闲 30s（面板收起 + 无请求 + 未拖动）→ `doze` → `sleep`；**面板打开期间不睡**；`sleep` 满 20s 自然 `wake`。
+  - 悬停命中区（仅 `pointerType === "mouse"`，250ms 确认、每次进入一次、8s 冷却；思考 / 拖动 / `bye` / `doze` 期间不问好）→ `greet`；睡着则 `wake` 后重新核对光标与业务状态再决定 `greet`。
+  - 拖动超过既有 4px 阈值 → `drag-shy`；抬手恢复：请求仍在 → 思考动作，否则 `idle`。
+  - 拖动**面板**造成避让（碰撞会话 0→1 时一次）→ `grumpy`；主动拖角色顶住面板不算「被挤开」。
+  - 请求：开始 → `think-curious`；4s 无有效正文 → `think-spin`；**首个非空 `text` 增量** → `idea`（拖动中丢弃顿悟、只更新恢复目标）；失败 / 取消 / 无正文自然结束 → `idle` 且不播 `idea`。`requestId` 逐请求递增，关闭面板或 `ChatPanel` 卸载即作废（仅取消计时器挡不住旧网络回调）。
+- **优先级**：主动拖动 > 有效回复 / 思考 > 问好、挤开；动作代次 `generation` 令牌保证过期计时器回调不生效；`actionKey` 只在动作切换或重播时 +1（绝不逐帧，否则包内动作层每帧重建）。
+- **`prefers-reduced-motion`**：包内 CSS 已把所有造型统一静态化（传任何 `action` 视觉一致），宿主因此**完全不驱动动作**——`pet-actor` 每次事件直接查 media query 早退，既不起生活 / 悬停计时，也不上报请求动作。
+- **窄屏抽屉打开时的层级与让位**（用户要求「遮罩后面也要看得见小精灵」）：抽屉高 `h-[min(78dvh,560px)]` → 其上方留出 125~284px 的可视带；角色在「窄屏 + 抽屉打开」时 ① 层级由 `z-[62]` 抬到 `z-[68]`（遮罩 65 之上、抽屉 70 之下，两个类名都写成字面量以便 Tailwind 扫到）；② 自动让位到可视带内（`y ≤ 抽屉顶 − 外框高 − MARGIN`，`drawerTop()` 与 `DRAWER_H_RATIO`/`DRAWER_H_MAX` 必须和抽屉的 class 同步），关闭后回让位前坐标；③ 让位期间仍可点可拖，但拖动被夹在可视带内、**不写 localStorage**；被用户主动挪过就不回原位（与桌面「被挤开不回退」一致）。窄屏**不做**桌面的面板避让（`clampAboveDrawer` 与 `pushOut` 二选一）。
+- 拖动监听改为由 `dragging` 驱动的 effect 统一挂 / 卸 `pointermove` / `pointerup` / `pointercancel` / `lostpointercapture`（原写法在 `pointerdown` 里挂一次性监听再于 `onPointerUp` 里自引用解绑，会被 `react-hooks/immutability` 拦下）。
+
+验收（隔离背景后逐相位抓图 + 真实鼠标 / 触摸事件）：
+
+| 项 | 结果 |
+| --- | --- |
+| 交互链路 | 点开 → `happy`；关闭 → `bye` → `sleep`；睡中点击 → `wake` → `happy`；睡中悬停 → `wake` → `greet`；拖动 → `drag-shy` → 抬手回 `idle`；拖面板挤开 → `grumpy` ✅ |
+| 请求链路 | `think-curious` →(4s)→ `think-spin` →(首字)→ `idea` → `idle`；无正文结束 / 500 失败 → 不播 `idea`、回 `idle` ✅ |
+| 思考中拖动 | `drag-shy` → 抬手恢复 `think-spin`（请求仍在）✅ |
+| 生活计时 | 空闲 30s → `doze`；关闭 → `bye` → `sleep`；睡满 20s → `wake` → `idle`（实测 19.1s / 30.0s）✅ |
+| reduced-motion | 点击 / 关闭 / 悬停均不进入任何动作（恒 `idle`）✅ |
+| 裁切 | 154 个「动作 × ±6°」相位中 2 个（`think-spin@-6°`、`idea@-6°`）hidden/visible 抓图有差异，外溢 ≤2px 且在顶部极淡光晕边缘；几何探针报的 ≤2.7px 系「旋转包围盒再取包围盒」放大，故判定不可见、接受 ✅ |
+| 窄屏 390×844 | 触摸点角色开抽屉 + `happy`；点遮罩关闭 + `bye` → `sleep`；命中区 `105.8×80` 在视口内 ✅ |
+| 窄屏抽屉让位 | 抽屉打开：`z=68`、角色整条在抽屉顶（284）之上（实测 bottom 272）、`elementFromPoint` 命中角色自身（可见又可点）；关闭：`z` 回 62、坐标精确回到让位前；让位期间往下拖仍被夹住且 `localStorage` 不变；矮屏 390×600 同样不越界 ✅ |
+| 构建 | `tsc` / `eslint` / `next build` 全绿 ✅ |
+

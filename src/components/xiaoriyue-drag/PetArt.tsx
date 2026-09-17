@@ -1,6 +1,6 @@
 /**
- * 小精灵美术 · 版本 v5（2026-09-16）
- * 变更：新增可选 action / actionKey 与 happy 动作，接入见 README.md。
+ * 小精灵美术 · 版本 v6（2026-09-17）
+ * 变更：完整睡眠、交互与对话动作库；导出动作元数据，接入见 README.md。
  * FRAME / CHAR、既有分组 ID 与宿主变量保持不变。
  *
  * 接入约定见同目录 SPEC.md：
@@ -19,9 +19,41 @@ export const CHAR = { x: 35, y: 111, w: 402, h: 304 };
 /** 天线顶端光点的渐变 id（全局只挂载一个实例，固定 id 即可） */
 const GLOW_ID = "pet-antenna-glow-fade";
 
-export type PetAction = "idle" | "happy";
-/** 与 CSS 的 happy 动作时长同步；宿主负责结束后切回 idle。 */
-export const ACTION_DURATION_MS = { happy: 1800 } as const;
+export const ACTION_DURATION_MS = {
+  happy: 1800,
+  doze: 2400,
+  wake: 2000,
+  greet: 1800,
+  bye: 2600,
+  grumpy: 1500,
+  idea: 1500,
+} as const;
+export type PetOneShotAction = keyof typeof ACTION_DURATION_MS;
+export type PetLoopAction =
+  "idle" | "sleep" | "drag-shy" | "think-curious" | "think-spin";
+export type PetAction = PetOneShotAction | PetLoopAction;
+type ActionSpec =
+  | { kind: "loop"; durationMs: null; next: null }
+  | { kind: "once"; durationMs: number; next: "idle" | "sleep" | "resume" };
+/** next 是宿主调度建议；resume 表示重新计算当前业务状态。 */
+export const ACTIONS: Record<PetAction, ActionSpec> = {
+  idle: { kind: "loop", durationMs: null, next: null },
+  happy: { kind: "once", durationMs: ACTION_DURATION_MS.happy, next: "resume" },
+  doze: { kind: "once", durationMs: ACTION_DURATION_MS.doze, next: "sleep" },
+  sleep: { kind: "loop", durationMs: null, next: null },
+  wake: { kind: "once", durationMs: ACTION_DURATION_MS.wake, next: "resume" },
+  greet: { kind: "once", durationMs: ACTION_DURATION_MS.greet, next: "resume" },
+  bye: { kind: "once", durationMs: ACTION_DURATION_MS.bye, next: "sleep" },
+  grumpy: {
+    kind: "once",
+    durationMs: ACTION_DURATION_MS.grumpy,
+    next: "resume",
+  },
+  "drag-shy": { kind: "loop", durationMs: null, next: null },
+  "think-curious": { kind: "loop", durationMs: null, next: null },
+  "think-spin": { kind: "loop", durationMs: null, next: null },
+  idea: { kind: "once", durationMs: ACTION_DURATION_MS.idea, next: "resume" },
+};
 
 export default function PetArt({
   className,
@@ -75,7 +107,7 @@ export default function PetArt({
         <g id="pet-character" className={styles.character}>
           <g
             key={`${action}-${actionKey}`}
-            className={`${styles.hover} ${action === "happy" ? styles.happy : ""}`}
+            className={`${styles.hover} ${styles[action]}`}
           >
             <g className={styles.antenna}>
               <g id="pet-antenna">
@@ -90,6 +122,7 @@ export default function PetArt({
                   style={{ fill: `url(#${GLOW_ID})` }}
                 />
                 <circle
+                  className={styles.core}
                   cx="337"
                   cy="142"
                   r="10"
@@ -108,7 +141,7 @@ export default function PetArt({
               />
             </g>
 
-            <g id="pet-face">
+            <g id="pet-face" className={styles.face}>
               <g id="pet-eye-left" className={styles.eyeLeft}>
                 <path
                   className={styles.normalEye}
@@ -120,6 +153,18 @@ export default function PetArt({
                   d="M175 252 Q187 232 199 249"
                   strokeWidth="7"
                 />
+                <path
+                  className={styles.closedEye}
+                  d="M174 250 Q187 258 200 247"
+                  strokeWidth="6"
+                />
+                <g className={styles.spiralLeft}>
+                  <path
+                    className={styles.spiralEye}
+                    d="M188 249 C183 245 189 239 194 244 C203 256 181 266 174 252 C165 233 192 225 204 239"
+                    strokeWidth="4"
+                  />
+                </g>
               </g>
               <g id="pet-eye-right" className={styles.eyeRight}>
                 <path
@@ -132,9 +177,62 @@ export default function PetArt({
                   d="M268 243 Q280 223 292 240"
                   strokeWidth="7"
                 />
+                <path
+                  className={styles.closedEye}
+                  d="M267 241 Q280 249 293 238"
+                  strokeWidth="6"
+                />
+                <g className={styles.spiralRight}>
+                  <path
+                    className={styles.spiralEye}
+                    d="M281 240 C276 236 282 230 287 235 C296 247 274 257 267 243 C258 224 285 216 297 230"
+                    strokeWidth="4"
+                  />
+                </g>
               </g>
               <g id="pet-mouth" className={styles.mouth}>
-                <path d="M222 284 Q235 296 248 281" />
+                <path
+                  className={styles.normalMouth}
+                  d="M222 284 Q235 296 248 281"
+                />
+                <path
+                  className={styles.pout}
+                  d="M222 287 L230 282 L238 288 L248 282"
+                />
+                <ellipse
+                  className={styles.roundMouth}
+                  cx="235"
+                  cy="286"
+                  rx="7"
+                  ry="9"
+                />
+              </g>
+              <g className={styles.brows} id="pet-brows">
+                <path d="M173 220 L198 230 M266 223 L290 210" />
+              </g>
+              <g className={styles.blush} id="pet-blush" strokeWidth="4">
+                <path d="M154 272 L150 281 M165 270 L161 279 M298 259 L294 268 M309 257 L305 266" />
+              </g>
+              <g className={styles.question} id="pet-question" strokeWidth="4">
+                <path d="M306 211 C301 200 319 193 323 203 C326 211 313 213 316 221 M317 229 L317 230" />
+              </g>
+              <g
+                className={styles.thoughts}
+                id="pet-thoughts"
+                stroke="none"
+                fill="currentColor"
+              >
+                <circle cx="221" cy="207" r="3" />
+                <circle cx="235" cy="204" r="4" />
+                <circle cx="249" cy="201" r="3" />
+              </g>
+              <g
+                className={styles.ideaRays}
+                id="pet-idea-rays"
+                strokeWidth="4"
+                style={{ stroke: "var(--pet-glow)" }}
+              >
+                <path d="M206 204 L202 193 M226 199 L227 186 M247 200 L254 188" />
               </g>
             </g>
 

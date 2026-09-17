@@ -220,3 +220,14 @@
 - 层级固定为 **角色 `z-62` > 桌面面板 `z-60`**，且角色低于遮罩 `z-65` 与窄屏抽屉 `z-70`：角色在桌面浮动面板之上（用户要求），移动端打开抽屉时被遮罩盖住，所以**避让逻辑只在桌面浮动面板下跑**。
 - **踩坑**：SVG 里用 `var()` 写颜色**必须走 `style`**（`style={{ stopColor: "var(--pet-glow)" }}`、`style={{ fill: ... }}`），写进 presentation attribute 解析不可靠；CSS Modules 会改写 `#id`，包内选 id 要用局部类名或 `:global(#…)`；验证倾斜时不能在同一 tick 读 `getComputedStyle().transform`——因为有 `transition: transform 200ms`，读到的是过渡起点（会误判成「没生效」）。
 - 额外确认：主体 105.8×80 的命中区比原来 56×56 的球大得多（约 +170% 面积），但外框 115.8×102.6 的空白区与影子**不再拦截点击**（用 `elementFromPoint` 断言过）。
+
+## 小精灵全动作接入（美术包 v6，2026-09-17）
+
+- **分工**：用户/美术在 `src/components/xiaoriyue-drag/` 里迭代 `PetArt.tsx` + `PetArt.module.css` + `README.md`（动作表、接入示例、事件对照都在 README），**宿主负责全部事件、计时、随机/循环调度与降载**。所以「接一批新动作」= 宿主写调度，不是改美术包。宿主调度集中在新增的 `src/store/pet-actor.ts`（zustand），`Sprite.tsx` 只转发 DOM 事件 + 订阅 `action/actionKey`，`ChatPanel.tsx` 只上报请求生命周期（`notifyRequestStart/FirstText/End` 带 `requestId`）。
+- **用户确认的口径**（有争议时以这些为准）：①「面板消失」就是关闭语义——`✕`/遮罩/`MemoryForm onDone`/搜索窄屏跳转全都走 `bye`→`sleep`，不区分来源；②点击睡着的角色先 `wake` 再 `happy`；③`grumpy` 只在**拖面板把角色挤开**时播，主动拖角色顶面板不算；④`think` 的「有效内容」= **首个非空 `text` 增量**（工具/卡片事件不算）；⑤`prefers-reduced-motion` 下宿主**完全不驱动动作**（CSS 已把造型全静态化，传什么 `action` 都长一样）；⑥悬停问好面板打开时也允许，仅鼠标、250ms 确认、每次进入一次、8s 冷却。
+- **README 的自相矛盾**（已和用户定案）：doze 的条件写成「面板关闭…空闲 45s」，但关闭面板本身就已 `bye`→`sleep`，那条路径会死。定案：关闭 → `bye`→`sleep`，**睡满 20s 自然醒**；`doze` 只用于「面板从未打开/已收起且真正闲置 30s」；**面板打开期间不睡**。两个间隔由美术 README 的 45/30 调成 **30/20**（用户要求，实测 19.1s / 30.0s 命中）。
+- **窄屏遮罩下要看得见小精灵**（用户要求，替代了原先「窄屏被遮罩盖住」的定案）：抽屉打开时角色层级 `z-62 → z-68`（遮罩 65 之上、抽屉 70 之下）并**自动让位**到抽屉上方的可视带（抽屉 `min(78dvh,560px)`，上带 125~284px），关闭回原位；期间**仍可点可拖**（用户选「保持可交互」），但拖动被夹在带内且不写 localStorage，被主动挪过就不回原位。`DRAWER_H_RATIO`/`DRAWER_H_MAX` 必须与抽屉的 Tailwind class 同步（已在代码里注释标明）。注意 Tailwind 任意值类名必须是字面量，`z-[68]`/`z-[62]` 不能拼字符串。
+- **踩坑（真 bug，测试抓到的）**：`notifyRequestEnd` 里无条件回 `idle` 会把刚播上的 `idea` 立刻顶掉——**流式回答很短时，首字与流结束几乎同刻**，顿悟就闪没了。改成只把 `think-curious`/`think-spin` 收回 `idle`，一次性动作交给各自的 `next` 收尾。同类问题：悬停唤醒的回调里不能判 `get().action === "idle"`——那一刻 action 还是 `wake`，要判 `=== "wake"`（动作代次 `generation` 令牌已经保证不会误伤被替换的动作）。
+- **两个 React/ESLint 细节**：① `onPointerUp` 里 `removeEventListener(..., onPointerUp)` 自引用会被 `react-hooks/immutability` 拦下——把拖动监听改成由 `dragging` 驱动的 effect 统一挂/卸（`pointermove`/`pointerup`/`pointercancel`/`lostpointercapture`），顺带满足 README 的「三种结束事件都要收尾」；② 面板关闭用 `useSpriteStore.subscribe((s, prev) => prev.open && !s.open && …)`，既统一了所有关闭来源，又避开「effect 里同步 setState」那条 lint。
+- **验证方法论（值得复用）**：判断「SVG 动作是否被外框裁切」不能只看 `getBoundingClientRect()` 的溢出——旋转元素的矩形是「包围盒再取包围盒」，会放大 1~3px，实测 idle@+6° 报 1.59px、bye@+6° 报 2.66px，**其实没有裁切**。可靠做法：① 注入样式隐藏 `canvas` 与 `position:fixed` 粒子（否则星空/粒子动画让抓图不可比）；② `animation-play-state: paused` + 负 `animation-delay` 锁相位；③ 同一相位的 `svg{overflow:hidden}` vs `visible` 各抓一张图**比 base64 是否完全相同**；④ 先连抓两张 hidden 做噪声自检（不等就说明方法无效）。这样 154 个相位里只揪出 2 个真实外溢（≤2px，在顶部极淡光晕边缘，判定不可见）。请求链路可以用 `window.fetch` 打桩返回假 SSE（含 4s 延迟、首字、500、长挂四种）来跑全链路，不必配真模型。
+

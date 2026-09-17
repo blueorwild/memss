@@ -35,8 +35,9 @@ src/components/xiaoriyue-drag/
 ## 2. 组件契约
 
 ```tsx
-export type PetAction = "idle" | "happy";
-export const ACTION_DURATION_MS = { happy: 1800 } as const;
+// 完整动作联合、时长与 ACTIONS 元数据以 PetArt.tsx 导出为准。
+export type PetAction = "idle" | "happy" | "doze" | "sleep" | "wake"
+  | "greet" | "bye" | "grumpy" | "drag-shy" | "think-curious" | "think-spin" | "idea";
 export default function PetArt({ className, action = "idle", actionKey = 0 }: {
   className?: string;
   action?: PetAction;
@@ -65,10 +66,12 @@ export default function PetArt({ className, action = "idle", actionKey = 0 }: {
   `'use client'` 之外的副作用、`setTimeout`/`setInterval` 驱动的动画。
 - 组件必须是**纯展示**的：同样的 props 渲染同样的 DOM。
 
-### v5 可选动作扩展
+### v6 可选动作扩展
 
-旧用法不变，默认 `idle`。宿主传入 `action="happy"` 播放一次开心动作，递增 `actionKey` 可重播。
-宿主按 `ACTION_DURATION_MS.happy` 在 1800ms 后切回 `idle`，负责计时取消及卸载清理；美术包没有事件或计时副作用。
+旧用法不变，默认 `idle`。宿主传入动作名称，递增 `actionKey` 可重播。
+`ACTION_DURATION_MS` 导出全部一次性动作时长；`ACTIONS` 导出每种动作的 kind、durationMs 和 next。
+循环动作的 durationMs / next 为 null；一次性动作 next 为 sleep 或 resume（重新计算宿主业务状态）。宿主负责计时、状态切换、取消及卸载清理；美术包没有事件或计时副作用。
+doze / bye 结束进入 sleep；bye 不移动、不隐藏角色。think-spin 只让屏幕内部螺旋与符号旋转。
 新命名导出为增量接口，既有 default export、FRAME、CHAR 均不变。可选接入示例见 `README.md`。
 仅内部动作层因动作或播放编号变化重新挂载；定位和倾斜层保留。动作切入为确定起始姿态，并非任意相位混合。
 
