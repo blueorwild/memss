@@ -413,7 +413,7 @@ export default function ChatPanel() {
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
             {m.content && (
               <span
-                className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 ${
+                className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left ${
                   m.role === "user"
                     ? "bg-accent-deep/70 text-white"
                     : "bg-white/10 text-white/90"

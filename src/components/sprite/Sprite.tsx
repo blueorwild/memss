@@ -669,7 +669,6 @@ export default function Sprite() {
           }}
           onPointerLeave={() => usePetActor.getState().notifyHoverLeave()}
           aria-label="小精灵：点击打开面板，拖动可移动"
-          title="点击打开 · 拖动移动"
           className="pointer-events-auto absolute cursor-grab touch-none outline-none active:cursor-grabbing"
           style={{
             left: `${HIT.left}%`,
