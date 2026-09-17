@@ -1,4 +1,4 @@
-# 回忆星空（暂名）— 项目计划
+# memss（memory star sky）— 项目计划
 
 > 一个纯爱好向的本地个人网站：以「星空」为外壳承载个人回忆，并常驻一只可对话、可操作回忆空间的悬浮小精灵智能体。
 
@@ -112,7 +112,7 @@ ai_try/
 ## 6. 核心模块设计
 
 ### 6.1 星空导航
-- 层级：地球 → 国家 → 地区 → （用户自定义子类，可继续下钻）。
+- 层级：根（memss）→ 国家 → 地区 → （用户自定义子类，可继续下钻）。
 - 每个类别以一颗「星星」呈现；有内容（递归）的星可点并带特效，否则灰暗。
 - 交互：点击星星 → 镜头推进（scale + opacity 过渡）进入下一层；提供**面包屑/层级路径**与**返回上级**，防止迷路。
 - 末级：该子类下的多张回忆以缩略图按 `seed` **确定性散落全屏**，并用时间线索串联。
@@ -324,8 +324,8 @@ ai_try/
 > 执行顺序：**E1 ✅ → 搜索(原 E5+E6) ✅ → E4 ✅ → E9 ✅**（E 打磨全部完成）。
 
 ### E1 分类树重命名 / 移动 ✅ 已完成
-- `PATCH /api/categories/[id]`（body `{name?, parentId?}`），校验五件套：根「地球」不可改、目标父级存在且非自身、**防环**（目标父级不得落在自身子树内）、**深度**（`depth(新父) + 子树高度 ≤ 5`）、目标同级重名。移动到新父级时追加到同级末尾（`sortOrder`）。
-- `src/lib/db/mutations.ts`：`updateCategory` + **`resyncSubtreeLocation`**——`location` 由类别路径派生（去掉根「地球」），改名/移动后必须重算**子树内全部回忆**的 `location`，否则详情页与面包屑不一致。
+- `PATCH /api/categories/[id]`（body `{name?, parentId?}`），校验五件套：根节点不可改、目标父级存在且非自身、**防环**（目标父级不得落在自身子树内）、**深度**（`depth(新父) + 子树高度 ≤ 5`）、目标同级重名。移动到新父级时追加到同级末尾（`sortOrder`）。
+- `src/lib/db/mutations.ts`：`updateCategory` + **`resyncSubtreeLocation`**——`location` 由类别路径派生（去掉根节点），改名/移动后必须重算**子树内全部回忆**的 `location`，否则详情页与面包屑不一致。
 - UI：`src/components/starfield/CategoryEditDialog.tsx`（复用 `ui/dialog.tsx`）；父级候选**排除自身子树**（UI 侧再挡一道防环）；星空页右上角新增「编辑」，位于「遗忘」左侧。父级选择用**弹层内联可折叠 cmdk 列表**而非 `Combobox`——Radix Dialog 内用 Portal 型 Popover 会被弹层盖住（`z-[80]` < `z-[91]`）、`body` 被设 `pointer-events:none`、且与焦点陷阱冲突（详见 `WORKBUDDY_MEMORY.md`）。**移动到新父级后 URL（按 id 组织）会失效 → 客户端算出新完整路径并 `router.push`**；仅改名则 `router.refresh()`。
 - 验证：用一次性测试类别覆盖改名 / 同级重名 409 / 防环 400 / 超深 400（含临界合法 5 级）/ 根类别 400 / 不存在 404 / 合法移动；API 实测 `location` 随父级与子树改名同步（`E1R / E1S-改名` → 改名父级后 `E1R-改名 / E1S-改名` → 移动后 `E1S-改名`）；UI（桌面 1440 + 移动 375）用 **CDP 真实坐标点击/触摸**确认入口、弹层、候选排除自身子树、**候选列表无 Portal 且命中测试通过（不被弹层遮挡）**、改名后 header 更新、移动后 URL 变为新路径、展开后弹层仍在视口内（375 下 345×566 ≤ 85dvh）且无控制台报错；真实数据回归无异常。（首轮 UI 测试因用 JS `.click()` 绕过层叠顺序漏掉了「下拉被弹层盖住」的 bug，已改用坐标点击复验。）
 
@@ -433,6 +433,7 @@ ai_try/
 - **`prefers-reduced-motion`**：包内 CSS 已把所有造型统一静态化（传任何 `action` 视觉一致），宿主因此**完全不驱动动作**——`pet-actor` 每次事件直接查 media query 早退，既不起生活 / 悬停计时，也不上报请求动作。
 - **窄屏抽屉打开时的层级与让位**（用户要求「遮罩后面也要看得见小精灵」）：抽屉高 `h-[min(78dvh,560px)]` → 其上方留出 125~284px 的可视带；角色在「窄屏 + 抽屉打开」时 ① 层级由 `z-[62]` 抬到 `z-[68]`（遮罩 65 之上、抽屉 70 之下，两个类名都写成字面量以便 Tailwind 扫到）；② 自动让位到可视带内（`y ≤ 抽屉顶 − 外框高 − MARGIN`，`drawerTop()` 与 `DRAWER_H_RATIO`/`DRAWER_H_MAX` 必须和抽屉的 class 同步），关闭后回让位前坐标；③ 让位期间仍可点可拖，但拖动被夹在可视带内、**不写 localStorage**；被用户主动挪过就不回原位（与桌面「被挤开不回退」一致）。窄屏**不做**桌面的面板避让（`clampAboveDrawer` 与 `pushOut` 二选一）。
 - 拖动监听改为由 `dragging` 驱动的 effect 统一挂 / 卸 `pointermove` / `pointerup` / `pointercancel` / `lostpointercapture`（原写法在 `pointerdown` 里挂一次性监听再于 `onPointerUp` 里自引用解绑，会被 `react-hooks/immutability` 拦下）。
+- **`think-curious` 的面部**（用户反馈「只是多了个问号，整体还是笑脸」）：包内升级 v6.1，改为「眯眼 `squintEye` + 一高一低眉 `pet-brows-think` + 抿嘴 `mouthThink`」，与 `normalEye`/`normalMouth` 交叉淡入 220ms，**问号与歪头扫视保留**；眨眼动效在思考期关闭。纯包内改动（新增 class / 分组与 `@keyframes thinkFace{In,Out}`，接口与 `FRAME/CHAR` 零变化），宿主无改动。**两条硬约束**：新零件必须默认 `opacity: 0`，且必须出现在 `prefers-reduced-motion` 的 `opacity: 0 !important` 白名单里，否则降载模式下会与基础脸叠画。包是美术交付物，故同时写进 `SPEC.md` §6/v6.1 与 `README.md` 动作表，避免下次交付把这里改回笑脸。
 
 验收（隔离背景后逐相位抓图 + 真实鼠标 / 触摸事件）：
 
@@ -448,3 +449,44 @@ ai_try/
 | 窄屏抽屉让位 | 抽屉打开：`z=68`、角色整条在抽屉顶（284）之上（实测 bottom 272）、`elementFromPoint` 命中角色自身（可见又可点）；关闭：`z` 回 62、坐标精确回到让位前；让位期间往下拖仍被夹住且 `localStorage` 不变；矮屏 390×600 同样不越界 ✅ |
 | 构建 | `tsc` / `eslint` / `next build` 全绿 ✅ |
 
+
+## 18. 品牌与根节点改名（已完成）
+
+用户要求：① 标签页图标用小精灵 idle 态；② 站名「回忆星空」→ **memss**（memory star sky）；③ 根路径上的「地球」→ **memss**。
+
+- **图标**：新增 `src/app/icon.svg`（Next 文件约定，自动注入 `<link rel="icon" type="image/svg+xml">`），**删除 `src/app/favicon.ico`**（两者并存时浏览器仍优先 .ico，不删等于没换）。图标是**头部特写**（去掉手/尾/影子）——实测 16px 下整只会糊成一团；路径取自包内 idle，坐标未改，只把描边加粗到 20/12/28（用户单位）保证小尺寸可读，外加 `#05060a` 圆角底，深浅标签栏都清楚。色值为 token 字面量：线稿 `rgb(220 235 255)`、光点 `#ffeeB4`。
+- **站名**：`src/app/layout.tsx` 的 `title` → `memss`（唯一 metadata 导出）；`/api/agent` 人格里的「回忆星空」→「memss」。
+- **根节点改名**：数据库类别树唯一根 `id="globe"`，原名「地球」→ **「memss」**（当前根路径 `/` → `/star/globe` 的 URL **不变**，id 是主键且代码里两处兜底写入 `"globe"`）。落点：`data/app.db` 一条 UPDATE（本地数据，`data/` 已 gitignore）+ `scripts/seed.mjs` 种子名同步。
+- **改名必须配套的代码修复**：`PATCH /api/categories/[id]` 明确禁止修改根，所以根改名只能走数据；但代码里有 **3 处按名字字面量「地球」判断「去掉根节点」**，改名后会静默失效（记忆的 `location` 会变成「memss / 日本 / 东京」）。新增 `isRootCategory(c) = c.parentId === null`（`lib/category-path.ts`）统一替换：`lib/db/mutations.ts` 的 `resyncSubtreeLocation`、`lib/agent-tools.ts` 的 `locationOfCategory`、`lib/memory-search.ts` 的 `buildCategoryPaths`；其余注释里的「地球」改为「根节点」。
+- 验证：浏览器实测 `document.title === "memss"`、`<link rel="icon">` 指向 `/icon.svg`（`/favicon.ico` 已 404）、`/star/globe` 面包屑 `memss`、`/star/globe/jp` 为 `memss / 日本`、`GET /api/categories` 根名 `memss`；**回归陷阱实测**——改名后把 `jp` 改成 `日本X` 再改回，11 条回忆的 `location` 变成 `日本X / 东京`、**没有**混入 `memss`，确认结构化判断生效。`tsc` / `eslint` / `next build` 全绿（`next build` 会产出 `○ /icon.svg`）。
+- ⚠️ **注意**：走 PATCH 改名会触发 `resyncSubtreeLocation`，把该子树的 `location` 从「种子里的自由文本」（如 `日本 · 东京 · 浅草`）重写成**类别路径格式**（`日本 / 东京`），不可逆。本次实测触发后已按 `scripts/seed.mjs` 的原始值逐条还原 11 条。
+
+## 19. 星图布局一致性与星星呈现（已完成）
+
+用户五条：① 只有记忆的页与「有子类别+记忆」的页，记忆区高度占比一致（前者换成后者）；② 有子类别时宽屏滚筒换单排、缩略图与「只有记忆」时一样大；③ `memss` → **MemSS**；④ 有子类别+记忆时星星从「一排均分」改成随机；⑤ 单页星星数量随屏宽设上限、超出时沿用记忆滚筒的流动做法。
+
+- **①的根因**：`MemoryCylinder` 按**自身 section 高度**选卡片档位（`<420 tiny`/`<520 compact`）。「有子类别」时该 section 只占 7/10 → 1440×800 上掉到 150×100，而「只有记忆」时是满高 → 200×133。**修法**：只有记忆的页面完全不动（仍占满），把档位基准从「本区块高度」换成**整页可用高度**（`StarfieldPage` 量 header 以下的 `flex-1` 区，传 `basisH`）——单排本来放得下常规档，空间小才需要单排。实测 900/800/700 与窄屏 390×844 下两种页面**卡片尺寸完全一致**、星轨位置一致，且只有记忆页仍占满可用高度。
+- **②**：`MemoryCylinder` 新增 `rows: 1|2`（仅宽屏生效，窄屏仍左右两列）；`trackCrossPositions(..., tracks)` 支持单轨居中。阈值口径（用户指定）：**有子类别时 >3 张即走滚筒**（`threshold = capacity × tracks`，单排 3 / 双排 6）。
+- **③**：站点标题、agent 人格、图标 aria-label、数据库根节点名、`scripts/seed.mjs`、相关注释与文档里的 `memss` → `MemSS`；类别 id `globe` 与 URL `/star/globe` 不变。
+- **④**：`CategoryStars` 删除 `arc`（等分一排）分支，统一 `scatterPos`（黄金角 + 类别 id 定种子，刷新稳定）；随机位置按实测容器尺寸夹在可视区内，矮星星带里名字不再被裁。
+- **⑤**：`starCapacity(w, maxCap) = clamp(floor(w×0.9/120), 3, maxCap)`（宽度未测到前返回 maxCap，避免首帧误判成流动）；`n > cap` 时改用**单行流动轨道**：缓慢自走 + 可拖 + 惯性 + 循环回绕 + 两端 mask 渐隐 + 按 id 定种子的错落。抽出 `src/lib/use-track-flow.ts`（offset/rAF 自走/惯性/拖动/ready 淡入）供记忆 `FlowTracks` 与星星共用，记忆侧行为不变。
+- 验证：CDP **32/32 PASS**（占比尺寸三档一致性、单排平铺/单排滚筒/双轨滚筒的聚簇判定、星星随机非等分、超限转流动、星星自走与拖动跟手、拖动不误跳转、记忆滚筒自走/拖动/点击进详情、窄屏 390×844 一致性与无横向溢出）；七个页面无 console 报错或 hydration 警告。临时分类 `zzl-tmp`（12 子类 + 4 无图记忆）造场景后已 purge，categories/memories/media 行数回到 12/137/161。`tsc` / `eslint` / `next build` 全绿。
+
+## 20. 星轨高度一致（宽屏）+ 星星流动深验（已完成）
+
+### 星轨高度
+- 现象：`TimelineRail` 的 `compact`（140 → 64）判据是**本区块高度 < 420**；有子类别时区块只占 7/10，于是**可用高度 420~600（视口约 480~660）的窗口里，有子类别页是 64、只有记忆页是 140**。
+- 修法（用户选 A：以有子类别页为准）：两页都按「有子类别时那块的高度」判定 —— `StarfieldPage` 算 `railCompact = roomH × MEMORY_FLEX_RATIO(0.7) < RAIL_COMPACT_BELOW(420)` 传给 `MemoryCylinder`；该值同时决定 `RAIL_MAIN/RAIL_MAIN_COMPACT` 与 `TimelineRail compact`。`0.7` 与 `flex-[7]` 比例同步（常量注释标明）。窄屏是竖向星轨 + `RAIL_CROSS`，天然不受影响。
+- 实测（1440 宽，8 档高度）：vh ≥ 700 两页都 140、vh ≤ 650 两页都 64；卡片尺寸两页始终一致；卡片底边到星轨顶边始终有 7~142px 余量（无重叠）。
+
+### 星星流动深验（造数据：20 / 40 / 12 子类三个临时分类 + 2 条无图记忆）
+- **上限口径（用户最终指定）**：无记忆页同屏 **20**、有记忆页 **10**，且**随屏宽等比**（`STAR_CAP_MAX` / `STAR_CAP_MAX_WITH_MEMORIES` + `STAR_CAP_REF_WIDTH = 1440`；`starCapacity(w, maxCap) = clamp(round(maxCap × w / 1440), 3, maxCap)`，删掉了原来的 `STAR_MIN_DENSITY_GAP = 52` 折算）。`slot = w / cap`——**不是** `0.9w / cap`，否则屏幕上会多出 1/0.9 倍（实测 23 颗而非 20）。实测：1440 → 20 / 10，2000 → 仍封顶 20 / 10，1100 → 15 / 8，390 → 5 / 3；超过上限走流动轨道（演示A 8 子类 → 散布；演示B 20 子类 → 流动；演示C 40 子类 → 流动）。
+- **流动几何**：可见星数 ≈ cap；每颗星（含名字）都在星区内；两端 mask 渐隐生效；无横向溢出。
+- **流动形态 = 整片区域 2D 随机**（用户三轮反馈后的最终形态）：① 发现"水平间距像等分"（原来是等距点阵 + ±9% 抖动）→ 改**环形随机间隔**；② 提密度时试过分排，**被否**（"一排排太丑，本质目的是星星在它所在的区域整体随机分布，流动的时候也是"）→ 改**纵向纯随机 + 横向逐对下限**；③ 用户仍反馈"20 分类的流动明显看出一条线" → 定量复盘：根因是**同屏太多（17~20 颗）+ 间距几乎等距（85~98px）+ 星星固定在一条横向走廊里匀速滑动**三者叠加。于是**降密度（20/10）+ 拉大间距差异**，并把纵向随机**按"横向挤不挤"分成两种模式**（`needCrossSep = 最宽名字下限 > slot`，即 `(w_i+w_{i+1})/2+8` 的最大值是否超过 slot）：
+  - **横向够宽时**（有记忆页 10 颗，slot 144 > 名字下限 ~104）→ **纵向纯随机**（按 id 定种子，刷新稳定）。关键坑：此时若还强行"相邻错开 68px"，242px 高的矮星区里 11 颗星会被逼成上下两排，**反而更像一条线**（实测同一水平带最多 5~7 颗、只剩 3 个带）。
+  - **横向挤时**（无记忆页 20 颗，slot 72 < 名字下限 ~99）→ **纵向蓝色噪声**：每颗星 5 个随机候选里挑"离前两颗最远"的那个，要求 ≥ `MIN_CROSS_SEP = 68`（`= ITEM_HALF_H × 2`）；横向下限回到 `MIN_PAIR_GAP = 44`，且 `needs` 要多看**隔一颗**（i 与 i+2 的累计横向距离可能仍放不下名字）。星区高（~668px）所以不会被逼成排。
+- **实测**（1440）：演示C 同屏 21、间距 52/71/89（波动 37，几何上限 = slot − 最小 need ≈ 28）、纵向 sd 218（均匀随机理论值 193）；演示B 同屏 11、间距 93/137/184（波动 91）、纵向 sd 41 / spread 135（可用 166）。名字两两零重叠（含长名字）。名字上限 `132 → 96px`（字号不变）。
+- 固定验收：最小间距 ≥44px、间距波动（矮星区 ≥20 / 高星区 ≥40）、**名字两两矩形零重叠**（含长名字）、纵向 sd（高星区 ≥120 / 矮星区 ≥35）、自走 Δ=-18/1.5s、拖动 Δ=-120、拖动不误跳转、40 帧无可见区瞬移、窄屏不溢出、`tsc`/`eslint`/`next build` 全绿。脚本 `/tmp/star-cap-verify.mjs`（20/20）。
+- **行为**：自走 18px/1.5s（≈12px/s 向左）；拖动跟手 Δ=-120；**松手惯性**继续同向（464→576→730）；拖动后不误跳转；7s × 60 帧采样确认**可见区内无瞬移**（回绕都发生在屏外，且松手后的高速惯性要先等衰减，否则会把「快速移动」误判成瞬移）；流动中单击星星能进子类别；`reduce` 下自走停止、拖动仍可用（Δ=-120）；40 子类同样走流动；窄屏 390（cap=3）流动、可见 2~5、无溢出。
+- **顺带修的长名字问题**（截图暴露）：长分类名会换行成两行并可能被星区裁掉。改为名字 `max-w-[96px] truncate` 单行截断（`LABEL_MAX_W = 96`），并让流动步长兼顾最长名字（`estWidth` 估算 CJK 14px / 其余 7px，`step = max(120, 最长名+24, 0.9w/cap)`），避免长名字互相压住。
+- 临时数据已 purge，categories/memories/media 回到 12/137/161；`tsc` / `eslint` / `next build` 全绿。
