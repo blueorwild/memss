@@ -9,7 +9,7 @@ type Star = { x: number; y: number; z: number; r: number; tw: number };
 
 /**
  * 流星：偶发（首次 2~4s，之后每次间隔 6~16s 随机，同屏最多 1 条），
- * 方向固定「右上 → 左下」，速度较快（约 1s 划过屏幕）。
+ * 方向固定「右上 → 左下」，偏快（约 1.5s 划过屏幕）。
  * 配色**冷/暖交替**出现（cool = 与星星同族的冷白/淡蓝；warm = 时间/回忆的暖金），
  * 纯属 A/B 观察用，定下来后可以只留一种。
  */
@@ -46,6 +46,8 @@ const METEOR_GAP_MAX_MS = 16000;
 /** 流星速度（px/s）与倾角（水平线以下，度） */
 const METEOR_SPEED_MIN = 950;
 const METEOR_SPEED_MAX = 1500;
+/** 再放慢 1.5 倍（用户反馈"有点快"）：划过时间 ×1.5 */
+const METEOR_SPEED_SCALE = 1 / 1.5;
 const METEOR_ANGLE_MIN = 20;
 const METEOR_ANGLE_MAX = 34;
 /** 尾迹长度（px）与回收余量（px） */
@@ -108,7 +110,9 @@ export default function StarBackground() {
       const angle =
         ((METEOR_ANGLE_MIN + Math.random() * (METEOR_ANGLE_MAX - METEOR_ANGLE_MIN)) * Math.PI) /
         180;
-      const speed = METEOR_SPEED_MIN + Math.random() * (METEOR_SPEED_MAX - METEOR_SPEED_MIN);
+      const speed =
+        (METEOR_SPEED_MIN + Math.random() * (METEOR_SPEED_MAX - METEOR_SPEED_MIN)) *
+        METEOR_SPEED_SCALE;
       const vx = -Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
       // 一半从顶边偏右起、一半从右缘偏上起，避免每条都从同一个点出发

@@ -394,7 +394,9 @@ export default function MemoryScene({
               {memory.title}
             </h1>
             {memory.date && (
-              <span className="shrink-0 whitespace-nowrap text-sm text-warm/70">{memory.date}</span>
+              <span className="shrink-0 whitespace-nowrap text-base text-warm/70 sm:text-lg">
+                {memory.date}
+              </span>
             )}
           </div>
           {memory.description && (
