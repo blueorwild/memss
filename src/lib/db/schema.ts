@@ -64,6 +64,19 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
 });
 
+/**
+ * 登录会话（单用户站长）。
+ * - id：cookie 明文 token 的 sha256（库里不存明文，偷到 DB 也无法直接登录）
+ * - remember：勾了「记住我」为 1（cookie 带 Max-Age），否则为 0（会话 cookie + 12h 过期）
+ */
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  remember: integer("remember").notNull().default(0),
+});
+
 export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Memory = typeof memories.$inferSelect;
@@ -73,3 +86,5 @@ export type NewMedia = typeof media.$inferInsert;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, lt } from "drizzle-orm";
 import { db } from "./index";
-import { categories, media, memories } from "./schema";
+import { categories, media, memories, sessions } from "./schema";
 import type { Memory } from "./schema";
 import { getCategory } from "./queries";
 import { isRootCategory } from "../category-path";
@@ -179,4 +179,38 @@ export async function deleteCategoryById(
 
   db.delete(categories).where(inArray(categories.id, subtreeIds)).run();
   return { ok: true, mode, affectedMemories, deletedCategories: subtreeIds.length };
+}
+
+// ---------- 登录会话 ----------
+
+/** 新建会话（id 为 cookie token 的 sha256） */
+export function createSession(row: {
+  id: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  remember: boolean;
+}): void {
+  db.insert(sessions)
+    .values({ ...row, remember: row.remember ? 1 : 0 })
+    .run();
+}
+
+/** 续期：只更新过期时间与最近活跃（避免每个请求都写库，由调用方控制频率） */
+export function touchSession(id: string, lastSeenAt: number, expiresAt: number): void {
+  db.update(sessions).set({ lastSeenAt, expiresAt }).where(eq(sessions.id, id)).run();
+}
+
+export function deleteSession(id: string): void {
+  db.delete(sessions).where(eq(sessions.id, id)).run();
+}
+
+/** 清空所有会话（改口令后强制其它设备重新登录） */
+export function deleteAllSessions(): void {
+  db.delete(sessions).run();
+}
+
+/** 清理已过期的会话 */
+export function deleteExpiredSessions(now: number): void {
+  db.delete(sessions).where(lt(sessions.expiresAt, now)).run();
 }

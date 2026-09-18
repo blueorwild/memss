@@ -1,7 +1,7 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./index";
-import { categories, conversations, media, memories, messages, settings } from "./schema";
-import type { Category, Conversation, Media, Memory, Message } from "./schema";
+import { categories, conversations, media, memories, messages, sessions, settings } from "./schema";
+import type { Category, Conversation, Media, Memory, Message, Session } from "./schema";
 
 export type { Category, Media, Memory };
 
@@ -275,4 +275,11 @@ export function setSetting(key: string, value: string): void {
     .values({ key, value })
     .onConflictDoUpdate({ target: settings.key, set: { value } })
     .run();
+}
+
+// ---------- 登录会话 ----------
+
+/** 按会话 id（= cookie token 的 sha256）取会话行 */
+export function getSessionRow(id: string): Session | null {
+  return db.select().from(sessions).where(eq(sessions.id, id)).get() ?? null;
 }

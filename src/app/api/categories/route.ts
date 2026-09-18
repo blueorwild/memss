@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
+import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getCategoryPath, listCategories } from "@/lib/db/queries";
@@ -9,11 +10,15 @@ const MAX_DEPTH = 5;
 
 /** 返回全部类别，供上传表单的类别级联使用 */
 export async function GET() {
+  const denied = await requireOwner();
+  if (denied) return denied;
   return Response.json(listCategories());
 }
 
 /** 新建子类别：校验父级深度（≤5 级）与同级重名 */
 export async function POST(req: NextRequest) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const body = (await req.json().catch(() => null)) as
     | { parentId?: unknown; name?: unknown }
     | null;

@@ -8,6 +8,7 @@ import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
+import { AuthedProvider } from "./AuthContext";
 import ChatPanel from "./ChatPanel";
 import MemoryForm from "./MemoryForm";
 import SearchPanel from "./SearchPanel";
@@ -184,7 +185,7 @@ const PARTICLES = Array.from({ length: 20 }, () => ({
 }));
 
 /** 悬浮小精灵：可拖拽的线稿角色 + 可展开面板（全局常驻） */
-export default function Sprite() {
+export default function Sprite({ authed }: { authed: boolean }) {
   const open = useSpriteStore((s) => s.open);
   const view = useSpriteStore((s) => s.view);
   const editMemoryId = useSpriteStore((s) => s.editMemoryId);
@@ -305,7 +306,7 @@ export default function Sprite() {
     [],
   );
 
-  // 初始化位置：优先读 localStorage，否则默认右下角
+  // 初始化位置：站长优先读 localStorage，否则默认右下角；访客居中且不读也不写位置
   // 用 setTimeout 异步设置，避免在 effect 内同步 setState 触发级联渲染
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -316,21 +317,25 @@ export default function Sprite() {
       const safeB = readSafeBottom(isMobile);
       safeBottomRef.current = safeB;
       const maxY = h - MARGIN - PET_BOX_H - safeB;
-      let next: Pt = { x: w - MARGIN - PET_W, y: maxY };
-      try {
-        const saved = localStorage.getItem(POS_KEY);
-        if (saved) {
-          const p = JSON.parse(saved) as Pt;
-          next = clampViewport(p, safeB);
+      let next: Pt = authed
+        ? { x: w - MARGIN - PET_W, y: maxY }
+        : { x: (w - PET_W) / 2, y: (h - PET_BOX_H) / 2 };
+      if (authed) {
+        try {
+          const saved = localStorage.getItem(POS_KEY);
+          if (saved) {
+            const p = JSON.parse(saved) as Pt;
+            next = clampViewport(p, safeB);
+          }
+        } catch {
+          /* 读取失败则用默认位置 */
         }
-      } catch {
-        /* 读取失败则用默认位置 */
       }
       posRef.current = next;
       setPos(next);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [isMobile]);
+  }, [isMobile, authed]);
 
   // 窄屏打开面板时锁定 body 滚动，避免背后内容跟随滑动
   useEffect(() => {
@@ -424,14 +429,15 @@ export default function Sprite() {
       usePetActor.getState().notifyDragEnd();
     }
     // 抽屉打开期间的坐标是「让位」结果，不持久化（否则下次打开会从抽屉上方开始）
-    if (d.moved && posRef.current && !(isMobile && open)) {
+    // 访客态的位置也不持久化：避免访客的摆放盖掉站长自己的位置
+    if (d.moved && posRef.current && authed && !(isMobile && open)) {
       try {
         localStorage.setItem(POS_KEY, JSON.stringify(posRef.current));
       } catch {
         /* 存储失败忽略 */
       }
     }
-  }, [isMobile, open]);
+  }, [isMobile, open, authed]);
 
   /** 按下角色：开始拖拽（全局监听交给 dragging 的 effect） */
   function onPointerDown(e: React.PointerEvent) {
@@ -535,7 +541,7 @@ export default function Sprite() {
   } as CSSProperties;
 
   return (
-    <>
+    <AuthedProvider value={authed}>
       {/* 拖尾光带（加粗、发光、逐点淡出） */}
       {trail.map((p) => (
         <motion.span
@@ -672,11 +678,18 @@ export default function Sprite() {
         可拖拽的小精灵角色：
         外框 = 造型 + 动作余量（透明、不拦事件），命中区只覆盖角色主体（见 SPEC.md §3）。
         层级 z-[62]：高于桌面面板（z-60），低于窄屏遮罩（z-65）与抽屉（z-70）。
+        访客态居中显示（且位置不持久化）；位置尚未初始化时也用同样的兜底定位。
       */}
       <div
         className={`pointer-events-none fixed touch-none select-none ${
           open && isMobile ? "z-[68]" : "z-[62]"
-        } ${pos ? "" : "bottom-6 right-6"}`}
+        } ${
+          pos
+            ? ""
+            : authed
+              ? "bottom-6 right-6"
+              : "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+        }`}
         style={petStyle}
       >
         <PetArt
@@ -703,6 +716,6 @@ export default function Sprite() {
           }}
         />
       </div>
-    </>
+    </AuthedProvider>
   );
 }

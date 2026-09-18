@@ -2,6 +2,7 @@
 
 import { useSpriteStore } from "@/store/sprite";
 import type { SpriteView } from "@/store/sprite";
+import { useAuthed } from "./AuthContext";
 
 /** 功能按钮定义：后续可在此扩展更多能力（标签用短词，窄屏 4 个按钮不至于换行） */
 const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
@@ -11,15 +12,21 @@ const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
   { key: "settings", label: "设置", icon: "⚙" },
 ];
 
-/** 小精灵功能按钮栏：切换对话 / 上传回忆 / 设置 */
+/** 未登录访客可用的功能：只能对话与查看设置（登录入口在设置里） */
+const GUEST_KEYS: SpriteView[] = ["chat", "settings"];
+
+/** 小精灵功能按钮栏：切换对话 / 搜索 / 上传回忆 / 设置（访客只有对话与设置） */
 export default function ActionBar() {
   const view = useSpriteStore((s) => s.view);
   const openView = useSpriteStore((s) => s.openView);
   const openUpload = useSpriteStore((s) => s.openUpload);
+  const authed = useAuthed();
+
+  const actions = authed ? ACTIONS : ACTIONS.filter((it) => GUEST_KEYS.includes(it.key));
 
   return (
     <div className="flex gap-2 border-b border-white/10 px-4 py-2">
-      {ACTIONS.map((it) => (
+      {actions.map((it) => (
         <button
           key={it.key}
           type="button"

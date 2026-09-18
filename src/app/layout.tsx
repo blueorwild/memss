@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sprite from "@/components/sprite/Sprite";
+import { isOwner } from "@/lib/auth";
 import { SKY_VOID_HEX } from "@/lib/theme";
 import "./globals.css";
 
@@ -30,7 +31,9 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // 登录态在服务端判定：访客首屏就是访客界面，不会闪烁
+  const authed = await isOwner();
   return (
     <html
       lang="zh-CN"
@@ -39,7 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         {children}
         {/* 全局悬浮小精灵（跨页面常驻） */}
-        <Sprite />
+        <Sprite authed={authed} />
       </body>
     </html>
   );

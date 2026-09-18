@@ -8,6 +8,8 @@ import {
 
 /** 存储键：Agent provider 配置 */
 const SETTING_KEY = "agent";
+/** 存储键：访客对话（Zen 免费模型）配置 */
+const GUEST_KEY = "guest";
 /** 默认启用哪个 provider */
 const DEFAULT_PROVIDER: ProviderId = "opencode-go";
 
@@ -151,4 +153,63 @@ export function resolveActiveProvider(config: AgentConfig = getAgentConfig()): R
     supportsTools: true,
     headers: preset.headers,
   };
+}
+
+// ---------- 访客对话（Zen 免费模型） ----------
+
+/** 访客配置：只用一把 Zen 密钥（选哪个免费模型由访客在白名单里自己挑） */
+type GuestConfig = {
+  apiKeyEnc: string | null;
+};
+
+/** 返回给前端的访客配置：密钥只给 hasKey 与掩码 */
+export type PublicGuestConfig = {
+  hasKey: boolean;
+  keyMask: string;
+  /** 密钥来自环境变量 ZEN_API_KEY（此时界面不允许改） */
+  fromEnv: boolean;
+};
+
+export type SaveGuestConfigInput = {
+  /** 省略/空串=保留原值，null=清除，有值=更新 */
+  apiKey?: string | null;
+};
+
+function parseGuestConfig(raw: string | null): GuestConfig {
+  if (!raw) return { apiKeyEnc: null };
+  try {
+    const parsed = JSON.parse(raw) as { apiKeyEnc?: unknown };
+    return { apiKeyEnc: typeof parsed.apiKeyEnc === "string" ? parsed.apiKeyEnc : null };
+  } catch {
+    return { apiKeyEnc: null };
+  }
+}
+
+/** 访客对话实际使用的 Zen Key：环境变量优先，其次是设置里保存的（密文解密） */
+export function resolveGuestApiKey(): string {
+  const env = process.env.ZEN_API_KEY?.trim();
+  if (env) return env;
+  const c = parseGuestConfig(getSetting(GUEST_KEY));
+  return c.apiKeyEnc ? (decryptSecret(c.apiKeyEnc) ?? "") : "";
+}
+
+export function getPublicGuestConfig(): PublicGuestConfig {
+  const fromEnv = Boolean(process.env.ZEN_API_KEY?.trim());
+  const plain = resolveGuestApiKey();
+  return {
+    hasKey: Boolean(plain),
+    keyMask: plain ? maskSecret(plain) : "",
+    fromEnv,
+  };
+}
+
+export function saveGuestConfig(input: SaveGuestConfigInput): PublicGuestConfig {
+  const config = parseGuestConfig(getSetting(GUEST_KEY));
+  if (input.apiKey === null) {
+    config.apiKeyEnc = null;
+  } else if (typeof input.apiKey === "string" && input.apiKey.trim()) {
+    config.apiKeyEnc = encryptSecret(input.apiKey.trim());
+  }
+  setSetting(GUEST_KEY, JSON.stringify(config));
+  return getPublicGuestConfig();
 }

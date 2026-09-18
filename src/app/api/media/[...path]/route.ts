@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
+import { requireOwner } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ path: string[] }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { path: parts } = await ctx.params;
   const abs = path.normalize(path.join(MEDIA_ROOT, parts.join("/")));
 

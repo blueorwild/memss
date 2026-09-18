@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { decryptSecret } from "@/lib/crypto";
 import { getAgentConfig } from "@/lib/settings";
 import { getPreset } from "@/lib/providers";
@@ -24,6 +25,8 @@ function extractModels(data: unknown): string[] {
  * 服务端代理请求该服务的 /models，复用已存密钥（baseURL 由预置内部提供）。
  */
 export async function GET(req: NextRequest) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const url = new URL(req.url);
   const providerId = url.searchParams.get("providerId") ?? "";
 

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { freeModelName, readFreeModelChoice } from "@/lib/free-models";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import MemoryListItem from "@/components/memory/MemoryListItem";
 import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
+import { useAuthed } from "./AuthContext";
 import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
 
 /** 检索结果中的记忆条目（含封面与地点，卡片与搜索面板共用渲染） */
@@ -52,15 +54,22 @@ const TOOL_LABEL: Record<string, string> = {
 };
 
 const WELCOME = "你好，我是这片星空里的小精灵。想聊点什么？";
+/** 访客（未登录）的开场白：点明这片星空还是空的，并给出使用引导 */
+const GUEST_WELCOME =
+  "你好，我是这片星空里的小精灵。星空还空着——想随便聊聊，或者问问我这里能做什么？";
 const STORAGE_KEY = "sprite:conversationId";
+/** 访客提到这些词就把他带到设置里的「账号」（免费模型不保证支持工具调用，故在客户端兜一层） */
+const LOGIN_HINTS = ["登录", "登陆", "账号", "帐号", "sign in", "signin", "我的回忆"];
 
 /** 对话面板：后端为会话真相源，前端只渲染；历史面板可管理多会话 */
 export default function ChatPanel() {
   const router = useRouter();
   const pathname = usePathname();
+  const authed = useAuthed();
+  const welcome = authed ? WELCOME : GUEST_WELCOME;
 
   const [view, setView] = useState<"chat" | "history">("chat");
-  const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: WELCOME }]);
+  const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: welcome }]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [input, setInput] = useState("");
@@ -76,8 +85,16 @@ export default function ChatPanel() {
   // 上一次发送的文本：用于失败后「重试」
   const lastUserRef = useRef("");
 
-  // 读取当前生效的服务与模型，显示在面板顶部
+  // 顶栏显示当前生效的服务与模型：站长读配置，访客读本地所选的免费模型
   useEffect(() => {
+    if (!authed) {
+      // 异步设置，避免在 effect 内同步 setState 触发级联渲染
+      const timer = window.setTimeout(
+        () => setAgentLabel(`免费模型 · ${freeModelName(readFreeModelChoice())}`),
+        0,
+      );
+      return () => window.clearTimeout(timer);
+    }
     let alive = true;
     fetch("/api/settings")
       .then((r) => r.json())
@@ -93,7 +110,7 @@ export default function ChatPanel() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [authed]);
 
   /** 记住当前会话 id（同时写入 localStorage，刷新后恢复） */
   const rememberConversation = useCallback((id: string | null) => {
@@ -133,13 +150,14 @@ export default function ChatPanel() {
     [rememberConversation],
   );
 
-  // 首次挂载：恢复上次的会话（异步触发，避免 effect 内同步 setState）
+  // 首次挂载：站长恢复上次的会话（访客对话不落库，刷新即空）
   useEffect(() => {
+    if (!authed) return;
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
     const timer = setTimeout(() => void loadConversation(saved), 0);
     return () => clearTimeout(timer);
-  }, [loadConversation]);
+  }, [authed, loadConversation]);
 
   // 消息或工具状态更新后自动滚到底部
   useEffect(() => {
@@ -272,6 +290,15 @@ export default function ChatPanel() {
   async function sendText(text: string, appendUser: boolean) {
     if (streaming) return;
     lastUserRef.current = text;
+    // 访客：不带会话 id，改为把最近的上下文随请求带上（后端不落库）
+    const history = authed
+      ? undefined
+      : messages
+          .filter((m) => m.content.trim())
+          .slice(-12)
+          .map((m) => ({ role: m.role, content: m.content }));
+    const wantsLogin =
+      !authed && LOGIN_HINTS.some((h) => text.toLowerCase().includes(h.toLowerCase()));
     setError(null);
     setToolStatus(null);
     setMessages((m) =>
@@ -292,7 +319,13 @@ export default function ChatPanel() {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, text, categoryId: currentCategoryId() }),
+        body: JSON.stringify({
+          conversationId,
+          text,
+          categoryId: currentCategoryId(),
+          model: authed ? undefined : readFreeModelChoice(),
+          history,
+        }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -345,6 +378,8 @@ export default function ChatPanel() {
         }
         return copy;
       });
+      // 访客问到登录 / 账号：回复结束后直接把他带到设置里的「账号」
+      if (wantsLogin) useSpriteStore.getState().openView("settings");
     }
   }
 
@@ -363,7 +398,7 @@ export default function ChatPanel() {
   /** 新建会话（回到空白对话） */
   function newConversation() {
     rememberConversation(null);
-    setMessages([{ role: "assistant", content: WELCOME }]);
+    setMessages([{ role: "assistant", content: welcome }]);
     setView("chat");
   }
 
@@ -389,24 +424,26 @@ export default function ChatPanel() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-1.5 text-[11px] text-white/40">
         <span className="truncate">使用中：{agentLabel ?? "…"}</span>
-        <div className="flex shrink-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={newConversation}
-            disabled={streaming}
-            title="新对话（当前会话仍保留在历史里）"
-            className="-my-1 px-1 py-1 transition-colors hover:text-white disabled:opacity-40 disabled:hover:text-white/40"
-          >
-            ＋ 新对话
-          </button>
-          <button
-            type="button"
-            onClick={() => void openHistory()}
-            className="-my-1 -mr-2 px-2 py-1 transition-colors hover:text-white"
-          >
-            历史
-          </button>
-        </div>
+        {authed && (
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={newConversation}
+              disabled={streaming}
+              title="新对话（当前会话仍保留在历史里）"
+              className="-my-1 px-1 py-1 transition-colors hover:text-white disabled:opacity-40 disabled:hover:text-white/40"
+            >
+              ＋ 新对话
+            </button>
+            <button
+              type="button"
+              onClick={() => void openHistory()}
+              className="-my-1 -mr-2 px-2 py-1 transition-colors hover:text-white"
+            >
+              历史
+            </button>
+          </div>
+        )}
       </div>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {messages.map((m, i) => (

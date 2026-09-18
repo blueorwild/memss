@@ -540,3 +540,41 @@ ai_try/
 - **改后**（同一 harness）：滚筒 **930 → 55ms**、星星 **985 → 52.5ms**、平铺 122 → 55ms；三页 `avg 16.7 / p95 16.7 / 掉帧 0`（55ms 已接近「只剩背景 canvas」的地板）。**背景 canvas 仍是唯一的常驻开销（约占 10%），本次按约定未动。**
 - **行为回归**（`/tmp/flow-behavior.mjs`，20/20 PASS）：自走 -12px/s（宽/窄/星星页一致）、拖动跟手 Δ=-200/-160、松手惯性 -201（250ms）后衰减回 -10px/s、拖动后不误跳转、正常点击进详情 / 进子类别、**60 帧内单帧最大位移 0.21px（无屏内瞬移）**、两端渐隐仍在、窄屏纵向向上自走与跟手、`reduced-motion` 不自走但仍可拖、平铺档无流动节点、无 console 报错。实拍 `/tmp/after-cylinder-1440.png`、`/tmp/after-stars-1440.png`、`/tmp/after-cylinder-390.png`。
 - **测试方法论教训**：这轮第一个「拖动跟手 Δ=0」的 FAIL 是**测试脚本自己的 bug**（`dragCard` 返回的 `from` 是单张卡的 `{x,y}`，却被当成 id→位置 的 map 用，`Object.keys` 出来的是 `["x","y"]`）——**断言失败先怀疑测量代码**；另外窄屏挑拖动目标要先用 `elementFromPoint` 确认指针真能落到卡片上（小精灵可能正压在上面）。
+
+## 24. 登录：访客态 / 站长解锁（已完成）
+
+### 目标与决策
+- **单用户解锁**（不是多用户 SaaS）：全站只有一个身份「站长」，解锁后看到全部回忆；其他访客永远是一片空星空。
+- 部署口径：**本机 / 局域网自用** → 不做限流与 Secure cookie（`COOKIE_SECURE=1` 可开）。
+- 登录态：**httpOnly cookie + `sessions` 表**（库里只存 token 的 sha256）。
+- 口令管理：**首次在界面设置 → 之后界面改**（旧口令 + 新口令）；没有环境变量覆盖；忘记口令用 `npm run reset-password` 清掉重设。
+- 访客对话：**纯闲聊、无工具、不落库**，由站长统一提供一把 OpenCode Zen 密钥，访客可在白名单免费模型里切换。
+- 现有数据：不动，归站长账号（本来就只有一份）。
+
+### 数据与接口
+- 新表 `sessions(id PK, created_at, last_seen_at, expires_at, remember)`（迁移 `drizzle/0001_curvy_the_initiative.sql`）。
+  - ⚠️ 本仓库的 `data/app.db` 是 `drizzle-kit push` 出来的，**没有跑过迁移链**；已有库上只需建这一张表（本次已在本机库建好），新环境走 `push` 或迁移链都行。
+- `src/lib/auth.ts`：scrypt(16384,8,1) 口令哈希存 `settings` 键 `owner`（`scrypt$salt$hash`，`timingSafeEqual` 校验，无新依赖）；会话 `getSession / isOwner / requireOwner / startSession / login / logout / setInitialPassword / changePassword`；连续错 5 次锁 30 秒（内存态）。
+  - cookie `memss_session`：`httpOnly; SameSite=Lax; Path=/`；勾「记住我」→ Max-Age 30 天，否则会话 cookie + 库内 12h；活跃超 1 天才滑动续期。
+  - `getSession()` 只读 cookie、不写（RSC 渲染期间不能写 cookie），所以续期只写库。
+- `/api/auth/{session,login,logout,password}`；`session` 公开返回 `{ authed, hasPassword }` 供前端决定显示「登录」还是「设置访问口令」。
+- **门禁一律在服务端**：`requireOwner()` 加在 `settings`、`agent/models`、`categories*`、`memories*`、`conversations*`、`media/[...path]` 上；未登录 401。`/api/agent` 分叉：站长走原路径（工具 + 落库），访客走免费模型（无工具、不落库、history 由前端每轮带上，≤12 条 / 单条 ≤2000 字）。
+
+### 前端
+- 根布局 `layout.tsx` 变成 async：`const authed = await isOwner()` → `<Sprite authed>`；`AuthedProvider` 把该值传给 ActionBar / SettingsPanel / ChatPanel，**SSR 就是正确的一版，不闪**；登录/登出后 `router.refresh()`。
+- `/`：未登录渲染 `GuestHome`（空星空 + canvas），已登录 redirect `/star/globe`；`/star/...` 与 `/memory/...` 未登录一律 redirect `/`。
+- `Sprite`：访客态**居中**且不读也不写 `sprite-pos`（避免访客的摆放盖掉站长的）。
+- `ActionBar`：访客只有「对话 / 设置」。
+- 设置面板：账号块（`AccountPanel`，访客常开不可折叠）+ 站长专属「模型服务」「访客对话（免费模型）」/ 访客专属「免费模型」+ 关于。
+- `ChatPanel`：访客不落库、不显示历史、开场白不同；提到「登录/账号/我的回忆」等词 → 回复结束后自动切到设置-账号（免费模型不保证支持 tool call，故在客户端兜一层）。
+
+### 验证（CDP 真事件，跑在临时副本 + 独立 DB 的 3100 实例上，未碰真实库）
+- `auth-verify.mjs` **29/29**：访客空星空 + 小精灵居中（720,443 ≈ 视口中心）+ 仅 2 个 tab + 6 个数据 API 全 401 + 无密钥时访客对话 503 且界面提示「暂不可用」+ 深链回首页 + 访客设置看不到模型服务；首次设置口令后自动登录 + httpOnly cookie（`document.cookie` 取不到）+ 勾「记住我」带 Max-Age；站长 4 个 tab + `/star/globe` + API 恢复 200 + 设置显示账号/模型服务/访客对话；退出回访客态；错口令 401；改口令后旧口令失效、新口令可用；访客取媒体 401。
+- `auth-ui-extra.mjs` 3/3：站长详情页图片正常加载（`/api/media` 加鉴权后 `<img>` 仍带 cookie）；访客说「我要登录」→ 自动切到设置-账号并展开。
+- 写接口抽查：访客 `PUT /api/settings`、`POST /api/auth/password`、`POST /api/categories`、`POST /api/memories`、`DELETE /api/memories/x` 全部 401，且原口令未被覆盖。
+- 站长侧回归 `flow-behavior`（改跑 3100）**20/20**：自走/拖动跟手/惯性/误触/无瞬移/渐隐/窄屏纵向/reduced-motion/平铺档全过。
+- 截图：`/tmp/auth-guest-1440.png`、`/tmp/auth-guest-390.png`、`/tmp/auth-guest-settings-1440.png`、`/tmp/auth-owner-1440.png`、`/tmp/auth-owner-settings-1440.png`。
+
+### 待办 / 注意
+- **访客对话尚未接真实模型**：需要站长在「设置 → 访客对话」填 Zen API Key（或设 `ZEN_API_KEY`）；填之前访客发消息会看到「暂不可用」。
+- 白名单只收录 OpenAI 兼容 `/chat/completions` 的免费档（`union-alpha` 走 `/messages`、`muse-spark-1.3-contributor-free` 走 `/responses`，需要另外的 SDK，暂不收录）。

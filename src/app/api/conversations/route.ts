@@ -1,15 +1,20 @@
 import { NextRequest } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { clearConversations, deleteConversations, listConversations } from "@/lib/db/queries";
 
 export const runtime = "nodejs";
 
 /** GET /api/conversations：会话列表（按更新时间倒序） */
 export async function GET() {
+  const denied = await requireOwner();
+  if (denied) return denied;
   return Response.json({ conversations: listConversations() });
 }
 
 /** DELETE /api/conversations?all=1 清空全部；?ids=a,b 删除选中 */
 export async function DELETE(req: NextRequest) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const url = new URL(req.url);
   if (url.searchParams.get("all") === "1") {
     clearConversations();

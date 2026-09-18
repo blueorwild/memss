@@ -1,10 +1,13 @@
 import { NextRequest } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { deleteConversation, getConversationWithMessages } from "@/lib/db/queries";
 
 export const runtime = "nodejs";
 
 /** GET /api/conversations/[id]：会话详情 + 消息（供前端渲染历史，含卡片） */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const data = getConversationWithMessages(id);
   if (!data) return Response.json({ error: "会话不存在" }, { status: 404 });
@@ -33,6 +36,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 /** DELETE /api/conversations/[id]：删除单个会话 */
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   deleteConversation(id);
   return Response.json({ ok: true });

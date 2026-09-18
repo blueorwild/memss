@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { media, memories } from "@/lib/db/schema";
 import { saveUpload, validFiles, parseCropArray } from "@/lib/media-upload";
@@ -8,6 +9,8 @@ export const runtime = "nodejs";
 
 /** POST /api/memories：接收 multipart 表单，保存媒体文件并写入一条回忆 */
 export async function POST(req: NextRequest) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const form = await req.formData();
 
   // 标题/描述不 trim（保留用户输入的首尾空白与换行）；仅用于校验时另行 trim

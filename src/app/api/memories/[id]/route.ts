@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
+import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { media, memories } from "@/lib/db/schema";
 import { getMemoryWithMedia } from "@/lib/db/queries";
@@ -25,6 +26,8 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const memory = getMemoryWithMedia(id);
   if (!memory) return Response.json({ error: "回忆不存在" }, { status: 404 });
@@ -36,6 +39,8 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const ok = await deleteMemoryById(id);
   if (!ok) {
@@ -63,6 +68,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const memory = db.select().from(memories).where(eq(memories.id, id)).get();
   if (!memory) return Response.json({ error: "回忆不存在" }, { status: 404 });

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import {
   collectSubtree,
   deleteCategoryById,
@@ -23,6 +24,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const body = (await req.json().catch(() => null)) as
     | { name?: unknown; parentId?: unknown }
@@ -111,6 +114,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOwner();
+  if (denied) return denied;
   const { id } = await params;
   const mode = new URL(req.url).searchParams.get("mode") === "move" ? "move" : "purge";
 

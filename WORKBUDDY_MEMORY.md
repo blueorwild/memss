@@ -328,3 +328,18 @@
 - **实现细节坑**：① 新挂载的节点会先出现在 `left:0`（因为 transform 由帧回调写、晚一帧）→ JSX 兜底 transform 放屏幕外 + **ref 回调里立刻按当前 offset 写一次真实位置**；② `memo` 想生效就别传新对象（把 `style` 拆成原始值 props）；③ 给 memo 组件传稳定回调（`justDragged` 用 `useCallback`）。
 - **教训（测试）**：第一版「拖动跟手 Δ=0」的 FAIL 是**我测试脚本自己的 bug**：`dragCard` 返回的 `from` 是单张卡的 `{x,y}`，我却当 id→位置 的 map 用（`Object.keys` 出来 `["x","y"]`）。**断言失败先怀疑测量代码，再怀疑被测代码**；窄屏挑拖动目标先用 `elementFromPoint` 确认指针能落到卡片上（小精灵可能压在上面）。
 - **交付**：`/tmp/flow-behavior.mjs` 20/20（跟手/惯性/误触/瞬移/纵向/reduced-motion/平铺回归）；截图 `/tmp/after-cylinder-1440.png`、`/tmp/after-stars-1440.png`、`/tmp/after-cylinder-390.png`；`tsc`/`eslint`/`next build` 全绿。
+
+## 登录页 / 访客态 / 站长解锁（2026-09-18）
+
+- **身份模型是单用户解锁，不是多用户 SaaS**。用户明确要「一个站长口令 + 未登录访客只能空星空闲聊」，所以**没有给业务表加 user_id**——省掉了 20 个文件的隔离改造。教训：听到「登录」先问清是「多账号数据隔离」还是「单一身份解锁」，工作量差一个数量级。
+- 口令管理最终口径（用户否决了 env 覆盖）：**首次在界面设置 → 登录后在界面改 → 忘记则 `npm run reset-password`**。菜单项不要默认塞 env/黑屏命令，用户会问「设置了之后就没这个视图了吗」。
+- 会话：`sessions` 表只存 token 的 **sha256**，明文只进 httpOnly cookie；`getSession()` 只读不写 cookie（**RSC 渲染期间写 cookie 会抛错**），所以滑动续期只写库。这套口径与仓库既有的「密钥 AES 密文落库」一致。
+- 门禁全部放服务端（`requireOwner()`）；客户端只做展示收敛（ActionBar 少两个 tab、设置里隐藏模型服务）。**只藏 UI 不挡 API 等于没做**，所以每个写接口都实测 401。
+- 登录态要**在 layout 用 `await isOwner()` 判、按 prop 传下去**（`AuthedProvider`）：这样 SSR 首屏就是正确的一版，不会先闪访客界面。登录/登出后靠 `router.refresh()` 让服务端重新判定。
+- 访客态小精灵**居中且不读写 `sprite-pos`**，否则访客拖两下会把站长的摆放覆盖掉。
+- 访客对话**不落库、无工具**，history 由前端每轮带上（免费模型不保证支持 tool call，所以「说登录就带他去账号页」是在客户端按关键词兜的）。
+- **教训（验证方法）**：这次在临时副本 + 独立 DB 上起第二个实例（3100）做登录测试，**没有在真实库里设置任何口令**；CDP 的 cookie 按 host 而非端口隔离，所以别指望两个实例能共用登录态。
+  - 踩坑：把源码 rsync 到临时副本后，**改代码要再同步一次**，否则你以为在测新代码、其实在测旧副本（我因此白追了一轮「defaultOpen 为什么没生效」）。
+  - 踩坑：`next dev` 不接受指向项目外的 `node_modules` 软链（"symlink points out of the filesystem root"），用 `cp -Rc`（APFS clonefile）几秒拷完 762M。
+  - 踩坑：CDP 里用 `header + div button` 抓按钮会被页面其它按钮污染，断言按钮集合时要按标签前缀过滤。
+- 折叠区块需求不要用「key + defaultOpen」赌重新挂载，直接给 `SettingsSection` 加 `locked`（常开不可折叠）更确定。
