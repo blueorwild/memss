@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { type CSSProperties, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   hashSeed,
   mulberry32,
@@ -146,6 +147,18 @@ function flowRotate(id: string) {
   return (mulberry32(hashSeed(`starrot:${id}`))() - 0.5) * 6;
 }
 
+/** 流动形态下把一颗星写到主轴位置：只写 transform（不写 left/top，避免每帧触发重排） */
+function flowStarTransform(
+  it: { base: number; rot: number },
+  offset: number,
+  span: number,
+  width: number,
+) {
+  const wrapped = (((it.base + offset) % span) + span) % span;
+  const main = wrapped - span / 2 + width / 2;
+  return `translate3d(${main.toFixed(2)}px, 0, 0) translate(-50%, -50%) rotate(${it.rot.toFixed(3)}deg)`;
+}
+
 /** 星星白色呼吸粒子参数：固定种子保证 SSR 与客户端一致，中等密度（5 颗/星） */
 const starRand = mulberry32(hashSeed("star-particles"));
 const STAR_PARTICLES = Array.from({ length: 12 }, () => ({
@@ -155,6 +168,111 @@ const STAR_PARTICLES = Array.from({ length: 12 }, () => ({
   delay: starRand() * 2.5,
   size: 1.5 + starRand() * 1.5,
 }));
+
+/** 单颗星：圆点 + 名字 +（有回忆时）呼吸粒子。散布与流动共用。 */
+const StarNode = memo(function StarNode({
+  c,
+  flow,
+  leftValue,
+  topValue,
+  rot,
+  isZoomed,
+  onSelect,
+  justDragged,
+  dataId,
+  nodeRef,
+}: {
+  c: CategoryWithCount;
+  /** 流动形态：位置由父层每帧直接写 transform（这里只给静态 left/top 与屏外兜底） */
+  flow: boolean;
+  leftValue: string | number;
+  topValue: string | number;
+  rot: number;
+  isZoomed: boolean;
+  onSelect: (id: string, e: React.MouseEvent) => void;
+  justDragged: () => boolean;
+  dataId?: string;
+  nodeRef?: (el: HTMLDivElement | null) => void;
+}) {
+  const hasMemories = c.memoryCount > 0;
+  const style = useMemo<CSSProperties>(
+    () => ({
+      left: leftValue,
+      top: topValue,
+      transform: flow
+        ? "translate3d(-99999px, -99999px, 0)"
+        : `translate(-50%, -50%) rotate(${rot}deg)`,
+    }),
+    [leftValue, topValue, flow, rot],
+  );
+
+  return (
+    <div
+      ref={nodeRef}
+      data-id={dataId}
+      className={flow ? "absolute will-change-transform" : "absolute"}
+      style={style}
+    >
+      {/* 可点星星的白色呼吸粒子（不拦截点击） */}
+      {hasMemories && (
+        <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
+          {STAR_PARTICLES.map((p, i) => (
+            <motion.span
+              key={i}
+              className="absolute rounded-full bg-white"
+              style={{
+                width: p.size,
+                height: p.size,
+                boxShadow: "0 0 5px 1.5px rgb(var(--sky-star) / 0.85)",
+              }}
+              animate={{
+                x: [0, p.dx],
+                y: [0, p.dy],
+                opacity: [0, 0.9, 0],
+                scale: [0.5, 1, 0.3],
+              }}
+              transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
+            />
+          ))}
+        </div>
+      )}
+      <motion.button
+        type="button"
+        onClick={(e) => {
+          // 刚拖动过就不当成点击；但只有流动形态才有拖动层，
+          // 散布形态别让历史标记（流动→散布切换后清不掉）挡住点击
+          if (flow && justDragged()) return;
+          onSelect(c.id, e);
+        }}
+        className="group flex flex-col items-center outline-none"
+        animate={{ opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }}
+        transition={{ duration: isZoomed ? 0.1 : 0.3 }}
+      >
+        <motion.span
+          className={
+            hasMemories
+              ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]"
+              : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
+          }
+          animate={hasMemories ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}
+          transition={hasMemories ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}}
+        />
+        <span
+          className={
+            hasMemories
+              ? "mt-3 max-w-[96px] truncate text-sm text-white/80 transition-colors group-hover:text-white"
+              : "mt-3 max-w-[96px] truncate text-xs text-white/35 transition-colors group-hover:text-white/70"
+          }
+        >
+          {c.name}
+        </span>
+        {hasMemories && (
+          <span className="mt-0.5 text-[10px] text-white/35">{c.memoryCount} 段回忆</span>
+        )}
+      </motion.button>
+    </div>
+  );
+});
 
 /**
  * 类别星星：一律随机散布；数量超出同屏容量（随屏宽自适应）时，
@@ -185,117 +303,137 @@ export default function CategoryStars({
 
   const {
     containerRef: flowRef,
-    offset: flowOffset,
+    offsetRef: flowOffsetRef,
     ready: flowReady,
+    onFrame: flowOnFrame,
     onPointerDown: flowPointerDown,
     onPointerMove: flowPointerMove,
     endDrag: flowEndDrag,
     justDragged,
   } = useTrackFlow({ mainLen: size.w });
 
-  type Node = { c: CategoryWithCount; left: string; top: string; rot: number };
-  const nodes: Node[] = [];
-
-  if (flowing) {
-    // 整片区域 2D 随机 + 环形随机间隔：算可见的一批（含屏外缓冲），回绕的跳变发生在屏幕外
-    const { bases, crosses, span } = buildFlowLayout(items, slot, size.h);
-    for (let i = 0; i < n; i++) {
-      const c = items[i];
-      const raw = bases[i] + flowOffset;
-      const wrapped = ((raw % span) + span) % span;
-      const main = wrapped - span / 2 + size.w / 2;
-      if (main < -ITEM_HALF_W - FLOW_BUFFER || main > size.w + ITEM_HALF_W + FLOW_BUFFER) continue;
-      nodes.push({ c, left: `${main}px`, top: `${crosses[i]}px`, rot: flowRotate(c.id) });
-    }
-  } else {
+  // 静态散布位置：随机散布形态（≤ 同屏容量）下算一次即可
+  const scatterNodes = useMemo(() => {
+    if (flowing) return [];
     // 随机散布：把位置夹在可视区内（星星带可能很矮，名字不能被裁）
     const xPadPct = size.w > 0 ? (ITEM_HALF_W / size.w) * 100 : 0;
     const yPadPct = size.h > 0 ? ((ITEM_HALF_H + 4) / size.h) * 100 : 0;
-    items.forEach((c, i) => {
+    return items.map((c, i) => {
       const p = scatterPos(i, n, c.id);
-      nodes.push({
+      return {
         c,
         left: `${clamp(p.x, xPadPct, 100 - xPadPct)}%`,
         top: `${clamp(p.y, yPadPct, 100 - yPadPct)}%`,
-        rot: 0,
-      });
+      };
     });
-  }
+  }, [flowing, items, n, size.w, size.h]);
+
+  // ---- 流动形态：静态布局算一次，每帧只写 DOM transform（不 setState）----
+  // 整片区域 2D 随机 + 环形随机间隔；回绕的跳变发生在屏幕外（且有两端渐隐兜底）
+  const flowLayout = useMemo(
+    () => (flowing ? buildFlowLayout(items, slot, size.h) : null),
+    [flowing, items, slot, size.h],
+  );
+  const flowSpan = flowLayout?.span ?? 1;
+  const flowItems = useMemo(
+    () =>
+      flowLayout
+        ? items.map((c, i) => ({
+            c,
+            base: flowLayout.bases[i],
+            cross: flowLayout.crosses[i],
+            rot: flowRotate(c.id),
+          }))
+        : [],
+    [flowLayout, items],
+  );
+  const flowItemById = useMemo(() => new Map(flowItems.map((it) => [it.c.id, it])), [flowItems]);
+  const flowElsRef = useRef(new Map<string, HTMLDivElement>());
+  const flowIdsKeyRef = useRef("");
+  const [flowVisibleIds, setFlowVisibleIds] = useState<string[]>([]);
+
+  /** 挂载瞬间按当前 offset 放好，否则新星星会先在左上角露一帧 */
+  const flowElRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return;
+      const id = el.dataset.id;
+      const it = id ? flowItemById.get(id) : undefined;
+      if (!it) return;
+      flowElsRef.current.set(it.c.id, el);
+      el.style.transform = flowStarTransform(it, flowOffsetRef.current, flowSpan, size.w);
+      return () => {
+        flowElsRef.current.delete(it.c.id);
+      };
+    },
+    [flowItemById, flowOffsetRef, flowSpan, size.w],
+  );
+
+  /** 每帧：算可见集合 → 写 transform → 只有集合变化时才 setState */
+  const flowUpdate = useCallback(
+    (offset: number) => {
+      const ids: string[] = [];
+      for (const it of flowItems) {
+        const wrapped = (((it.base + offset) % flowSpan) + flowSpan) % flowSpan;
+        const main = wrapped - flowSpan / 2 + size.w / 2;
+        if (main < -ITEM_HALF_W - FLOW_BUFFER || main > size.w + ITEM_HALF_W + FLOW_BUFFER) continue;
+        ids.push(it.c.id);
+        const el = flowElsRef.current.get(it.c.id);
+        if (el) {
+          el.style.transform = `translate3d(${main.toFixed(2)}px, 0, 0) translate(-50%, -50%) rotate(${it.rot.toFixed(3)}deg)`;
+        }
+      }
+      const key = ids.join("|");
+      if (key !== flowIdsKeyRef.current) {
+        flowIdsKeyRef.current = key;
+        setFlowVisibleIds(ids);
+      }
+    },
+    [flowItems, flowSpan, size.w],
+  );
+
+  useEffect(
+    () => (flowing ? flowOnFrame(flowUpdate) : undefined),
+    [flowing, flowOnFrame, flowUpdate],
+  );
+  useLayoutEffect(() => {
+    if (flowing) flowUpdate(flowOffsetRef.current);
+  }, [flowing, flowUpdate, flowOffsetRef]);
 
   const body = (
     <>
-      {nodes.map(({ c, left, top, rot }) => {
-        const hasMemories = c.memoryCount > 0;
-        const isZoomed = zoomedId === c.id;
-
-        return (
-          <div
-            key={c.id}
-            className="absolute"
-            style={{ left, top, transform: `translate(-50%, -50%) rotate(${rot}deg)` }}
-          >
-            {/* 可点星星的白色呼吸粒子（不拦截点击） */}
-            {hasMemories && (
-              <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
-                {STAR_PARTICLES.map((p, i) => (
-                  <motion.span
-                    key={i}
-                    className="absolute rounded-full bg-white"
-                    style={{
-                      width: p.size,
-                      height: p.size,
-                      boxShadow: "0 0 5px 1.5px rgb(var(--sky-star) / 0.85)",
-                    }}
-                    animate={{
-                      x: [0, p.dx],
-                      y: [0, p.dy],
-                      opacity: [0, 0.9, 0],
-                      scale: [0.5, 1, 0.3],
-                    }}
-                    transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
-                  />
-                ))}
-              </div>
-            )}
-            <motion.button
-              type="button"
-              onClick={(e) => {
-                // 刚拖动过就不当成点击；但只有流动形态才有拖动层，
-                // 散布形态别让历史标记（流动→散布切换后清不掉）挡住点击
-                if (flowing && justDragged()) return;
-                onSelect(c.id, e);
-              }}
-              className="group flex flex-col items-center outline-none"
-              animate={{ opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }}
-              transition={{ duration: isZoomed ? 0.1 : 0.3 }}
-            >
-              <motion.span
-                className={
-                  hasMemories
-                    ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]"
-                    : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
-                }
-                animate={hasMemories ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}
-                transition={
-                  hasMemories ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}
-                }
+      {flowing
+        ? flowVisibleIds.map((id) => {
+            const it = flowItemById.get(id);
+            if (!it) return null;
+            return (
+              <StarNode
+                key={id}
+                c={it.c}
+                flow
+                leftValue={0}
+                topValue={it.cross}
+                rot={it.rot}
+                isZoomed={zoomedId === it.c.id}
+                onSelect={onSelect}
+                justDragged={justDragged}
+                dataId={id}
+                nodeRef={flowElRef}
               />
-              <span
-                className={
-                  hasMemories
-                    ? "mt-3 max-w-[96px] truncate text-sm text-white/80 transition-colors group-hover:text-white"
-                    : "mt-3 max-w-[96px] truncate text-xs text-white/35 transition-colors group-hover:text-white/70"
-                }
-              >
-                {c.name}
-              </span>
-              {hasMemories && (
-                <span className="mt-0.5 text-[10px] text-white/35">{c.memoryCount} 段回忆</span>
-              )}
-            </motion.button>
-          </div>
-        );
-      })}
+            );
+          })
+        : scatterNodes.map(({ c, left, top }) => (
+            <StarNode
+              key={c.id}
+              c={c}
+              flow={false}
+              leftValue={left}
+              topValue={top}
+              rot={0}
+              isZoomed={zoomedId === c.id}
+              onSelect={onSelect}
+              justDragged={justDragged}
+            />
+          ))}
 
       {items.length === 0 && (
         <p className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-sm text-white/35">

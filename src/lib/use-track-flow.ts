@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
 
 /** 自动流动速度（px/s）：记忆卡片与星图星星共用同一手感 */
@@ -10,11 +10,18 @@ export const FLOW_SPEED = 12;
 export const DRAG_CLICK_GUARD_MS = 400;
 
 /**
+ * 每帧回调：参数为当前 offset（px）。
+ * **回调里只写 DOM，不要 setState** —— 每帧 setState 会让整棵子树重渲染
+ * （实测：12 张卡片 + 星轨每帧重渲染 ≈ 4ms/帧，是滚筒页卡顿的主因）。
+ */
+type FrameCallback = (offset: number) => void;
+
+/**
  * 单轨流动（「滚筒」）的公共逻辑：缓慢自走 + 跟手拖动 + 松手惯性。
  *
- * 记忆卡片（MemoryCylinder 的 FlowTracks）与超量类别星星（CategoryStars）
- * 都用它，避免两处各写一份 rAF/拖动/惯性代码。
- * 只负责 offset 与拖动状态；各项的渲染位置（含循环回绕）由调用方算。
+ * 记忆卡片（MemoryCylinder 的 FlowTracks）与超量类别星星（CategoryStars）都用它。
+ * 只负责 offset 与拖动状态；各项的渲染位置（含循环回绕）由调用方算，
+ * 通过 `onFrame` 订阅后**直接写 DOM**（见上面的说明）。
  */
 export function useTrackFlow({
   /** 轨道主轴长度（宽屏=宽，窄屏=高），用于换算拖动方向 */
@@ -33,14 +40,28 @@ export function useTrackFlow({
   const lastPosRef = useRef(0);
   const movedRef = useRef(false);
   const lastDragEndRef = useRef(0);
-  const [offset, setOffset] = useState(0);
+  /** 每帧回调集合（订阅方在 effect 里注册，卸载时退订） */
+  const framesRef = useRef(new Set<FrameCallback>());
   const [ready, setReady] = useState(false);
+
+  /** 通知所有帧回调：rAF 每帧调用；拖动时每个事件也调，保证跟手不滞后一帧 */
+  const emit = useCallback(() => {
+    for (const cb of framesRef.current) cb(offsetRef.current);
+  }, []);
+
+  /** 订阅每一帧（返回退订函数）。回调里直接写 DOM，不要 setState。 */
+  const onFrame = useCallback((cb: FrameCallback) => {
+    framesRef.current.add(cb);
+    return () => {
+      framesRef.current.delete(cb);
+    };
+  }, []);
 
   // 首帧随机初始位置（客户端生成），随后淡入，避免看到跳变
   useEffect(() => {
     const timer = window.setTimeout(() => {
       offsetRef.current = -Math.random() * mainLen * 0.8;
-      setOffset(offsetRef.current);
+      emit();
       setReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -65,13 +86,13 @@ export function useTrackFlow({
           velocityRef.current = 0;
           offsetRef.current -= FLOW_SPEED * dt;
         }
-        setOffset(offsetRef.current);
+        emit();
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [reduceMotion, ready]);
+  }, [reduceMotion, ready, emit]);
 
   /** 拖动：沿轨道方向跟手移动 */
   function onPointerDown(e: React.PointerEvent) {
@@ -92,7 +113,7 @@ export function useTrackFlow({
     }
     offsetRef.current += d;
     velocityRef.current = d * 60;
-    setOffset(offsetRef.current);
+    emit();
   }
 
   function endDrag(e: React.PointerEvent) {
@@ -107,13 +128,18 @@ export function useTrackFlow({
   }
 
   /** 刚拖过就别把这次抬手当成点击（只拦拖动结束后立刻到来的那一次 click） */
-  const justDragged = () =>
-    performance.now() - lastDragEndRef.current < DRAG_CLICK_GUARD_MS;
+  const justDragged = useCallback(
+    () => performance.now() - lastDragEndRef.current < DRAG_CLICK_GUARD_MS,
+    [],
+  );
 
   return {
     reduceMotion,
     containerRef,
-    offset,
+    /** 当前 offset。只在 effect / 事件回调里读（渲染期不读，避免 lint 与不一致） */
+    offsetRef,
+    /** 订阅每帧（回调里写 DOM，别 setState） */
+    onFrame,
     ready,
     onPointerDown,
     onPointerMove,

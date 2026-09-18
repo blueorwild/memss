@@ -318,3 +318,13 @@
 - **顺序坑（这次被测试抓到的）**：**必须先裁面板、再判角色避让**。我先判避让（按面板的旧坐标）再裁面板，结果 760×520 下角色避开了旧位置、面板随后被裁到角色身上（实测角色落在面板矩形内部）。**同一帧内多个元素互相约束时，"被参考的那个"要先算出最终值。**
 - **验证**：`/tmp/resize-verify.mjs` 14/14 PASS（拖到右下后 1440→700→390 全程完整可见且贴新边界；面板打开并拖到右下后缩到 760×520，角色+面板都在视口内且不重叠，角色被推到面板左侧 x=285；日期 `rgb(255,255,255)`、字号 18px）。截图 `/tmp/date-white.png`。
 - **测试技巧**：用 `Emulation.setDeviceMetricsOverride` 换视口会真实触发 `resize`（不必手动 dispatchEvent）；拖拽用 `Input.dispatchMouseEvent` 真事件；元素的"几何身份"用 `button[aria-label^="小精灵"]` 与其 parent 取外框，比扒 class 稳。
+
+## 滚筒流动卡顿：每帧 setState → 直接写 DOM（2026-09-18）
+
+- **用户反馈**：「记忆滚筒页有点卡顿的感觉」→ 先量化再动手（`/tmp/perf-probe.mjs`：1600×1000 @2x DPR、3.5s 窗口，看 `Performance.getMetrics` 的 Script/RecalcStyle/Layout/Task 增量 + rAF 帧间隔）。改前：滚筒页 **script 930ms**、掉帧 34；平铺页只有 122ms。**先拿数据再改代码，这轮省了大量瞎试。**
+- **根因**：`useTrackFlow` 每帧 `setOffset`（React state）→ 整棵子树（卡片 + 星轨 + framer-motion）每帧重渲染 ≈ 4ms/帧。**顺手证伪了两个直觉**：去掉卡片发光/星轨 blur 无改善（845ms）、去掉两端渐隐 mask 无改善（879ms）；`reduced-motion` 下 flow 循环不启动 → script 掉到 2.6ms，直接锁定「流动的每帧重渲染」。
+- **改法**：hook 改 **ref + `onFrame(cb)` 订阅**（rAF 只更 ref 并 emit）；调用方**每帧只写 `transform`**（不写 left/top，避免每帧重排）；可见集合与 `activeId` **变了才 setState**。改后滚筒 930→55ms、星星 985→52.5ms、三页掉帧 0；残留 55ms 就是背景 canvas 的地板（用户选择先不动它）。
+- **通用原则**：**「每帧都在变的东西」不要放进 React state** —— 放进 ref，用订阅回调直接写 DOM；React state 只留给「离散变化」（可见集合、当前高亮项）。这条对任何自走/惯性/拖拽动画都适用。
+- **实现细节坑**：① 新挂载的节点会先出现在 `left:0`（因为 transform 由帧回调写、晚一帧）→ JSX 兜底 transform 放屏幕外 + **ref 回调里立刻按当前 offset 写一次真实位置**；② `memo` 想生效就别传新对象（把 `style` 拆成原始值 props）；③ 给 memo 组件传稳定回调（`justDragged` 用 `useCallback`）。
+- **教训（测试）**：第一版「拖动跟手 Δ=0」的 FAIL 是**我测试脚本自己的 bug**：`dragCard` 返回的 `from` 是单张卡的 `{x,y}`，我却当 id→位置 的 map 用（`Object.keys` 出来 `["x","y"]`）。**断言失败先怀疑测量代码，再怀疑被测代码**；窄屏挑拖动目标先用 `elementFromPoint` 确认指针能落到卡片上（小精灵可能压在上面）。
+- **交付**：`/tmp/flow-behavior.mjs` 20/20（跟手/惯性/误触/瞬移/纵向/reduced-motion/平铺回归）；截图 `/tmp/after-cylinder-1440.png`、`/tmp/after-stars-1440.png`、`/tmp/after-cylinder-390.png`；`tsc`/`eslint`/`next build` 全绿。

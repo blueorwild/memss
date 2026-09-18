@@ -514,3 +514,29 @@ ai_try/
 - **基线与换行**：用 `items-baseline` 让日期与标题**首行**同基线（实测 Δ=0）；顶格 20 汉字标题在 390 窄屏换 2 行、日期仍留在首行右侧，内容区无横向溢出。
 - **实测**（CDP）：1440 / 390 / 长标题 / 短标题四种组合下日期都在标题右侧、与标题首行同基线、页头已无日期、内容区 `scrollWidth == clientWidth`；日期计算色最终为 `rgb(255,255,255)`（与标题同色）。`main` 内无溢出（文档级偶发 +4~6px 来自背景图 `blur-xs`，改动前即有）。
 - **已知取舍（如实记录）**：1440×900 且这条回忆**带音乐**时，主区内容本来就比视口高（`scrollHeight 1031 / 900`，标题原本就贴在折线下沿），日期落到折线下 16px，需轻微滚动才可见；1080 高视口下正常可见。若要彻底解决需另行动刀（例如给主图加 `max-h` 上限），本次未改。
+
+## 23. 滚筒 / 超量星星流动：性能优化（已完成）
+
+- **症状**（用户）：「记忆滚筒页有点卡顿的感觉」。
+- **先量化再动手**（headless CDP，1600×1000 @2x DPR，3.5s 采样窗口，`/tmp/perf-probe.mjs`）：
+
+| 场景 | 主线程 script | 帧 avg / p95 | >33ms 掉帧 |
+| --- | --- | --- | --- |
+| 平铺档（5 条，无流动） | 122ms | 17.3 / 16.8 | 8 |
+| 滚筒（100 条，12 张卡） | **930ms** | 20.1 / 33.4 | **34** |
+| 超量星星（20 分类，13 颗） | **985ms** | 16.7 / 16.7 | 0 |
+| 滚筒 + `reduced-motion`（流动与背景循环都停） | 2.6ms | 16.7 / 16.7 | 0 |
+| 滚筒，去掉卡片发光 / 星轨 blur | 845ms（**无改善**） | — | 26 |
+| 滚筒，去掉两端渐隐 mask | 879ms（**无改善**） | — | 22 |
+| 滚筒，把背景 canvas 缩到 1×1 | 744ms | 16.7 / 16.8 | 0 |
+
+- **根因**：流动由 `useTrackFlow` 的 `setOffset` 每帧驱动 → 整棵子树（卡片 + 星轨 SVG + framer-motion 光标/粒子）每帧重渲染，约 **4ms/帧** 纯 JS（占 60fps 预算 25%）；背景 canvas 再叠约 100ms（软件光栅下还会掉帧）。**mask / 卡片发光 / 星轨 blur 都不是原因**（去掉零改善），所以没动它们。
+- **改法**（记忆滚筒 + 超量星星一起）：
+  1. `use-track-flow` 改为 **ref 驱动 + `onFrame(cb)` 订阅**：rAF 只更 `offsetRef` 并 `emit`，**不再 setState**（拖动时每个 pointermove 也 emit，保证跟手不滞后一帧）；`ready` / 随机起点淡入 / `justDragged` 时间窗守卫语义不变。
+  2. `FlowTracks`：几何（`step/span/counts/trackCross`）进 `useMemo`；每帧对 `Map<id, el>` 写 **`transform: translate3d(...) rotate(...)`**（JSX 里 left/top 静态，避免每帧触发布局）；**可见集合（含屏外 buffer）与 `activeId` 都「变了才 setState」**（按 12px/s 与 ≥480px 步长，几秒~几十秒一次）。
+  3. `CategoryStars` 流动分支同法：`left: 0` + 每帧 `translate3d(main,…)`；顺带让 11 颗星 × 12 个呼吸粒子的 `animate` 对象不再每帧重建。
+  4. 防御：`MemoryCardFace` / `TimelineRail` / `VerticalTimelineRail` 加 `memo`，`coverStyle()` 结果缓存，新的 `StarNode`（散布/流动共用）用原始值 props；移动层 `will-change-transform`。
+  5. **防挂载瞬间露位**：节点 JSX 的兜底 transform 放到屏外（`translate3d(-99999px,…)`），并在 ref 回调里立刻按 `offsetRef` 写一次真实位置。
+- **改后**（同一 harness）：滚筒 **930 → 55ms**、星星 **985 → 52.5ms**、平铺 122 → 55ms；三页 `avg 16.7 / p95 16.7 / 掉帧 0`（55ms 已接近「只剩背景 canvas」的地板）。**背景 canvas 仍是唯一的常驻开销（约占 10%），本次按约定未动。**
+- **行为回归**（`/tmp/flow-behavior.mjs`，20/20 PASS）：自走 -12px/s（宽/窄/星星页一致）、拖动跟手 Δ=-200/-160、松手惯性 -201（250ms）后衰减回 -10px/s、拖动后不误跳转、正常点击进详情 / 进子类别、**60 帧内单帧最大位移 0.21px（无屏内瞬移）**、两端渐隐仍在、窄屏纵向向上自走与跟手、`reduced-motion` 不自走但仍可拖、平铺档无流动节点、无 console 报错。实拍 `/tmp/after-cylinder-1440.png`、`/tmp/after-stars-1440.png`、`/tmp/after-cylinder-390.png`。
+- **测试方法论教训**：这轮第一个「拖动跟手 Δ=0」的 FAIL 是**测试脚本自己的 bug**（`dragCard` 返回的 `from` 是单张卡的 `{x,y}`，却被当成 id→位置 的 map 用，`Object.keys` 出来的是 `["x","y"]`）——**断言失败先怀疑测量代码**；另外窄屏挑拖动目标要先用 `elementFromPoint` 确认指针真能落到卡片上（小精灵可能正压在上面）。

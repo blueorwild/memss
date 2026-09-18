@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -48,12 +48,27 @@ const CAPTION_CLS: Record<CardTier, string> = {
 };
 
 /** 回忆卡片外观：白色常驻微光 + hover 增强；图片加载完成后淡入 */
-function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }) {
+const MemoryCardFace = memo(function MemoryCardFace({
+  memory,
+  tier,
+}: {
+  memory: MemoryCard;
+  tier: CardTier;
+}) {
   const [loaded, setLoaded] = useState(false);
   // 命中缓存时 onLoad 可能不触发，用 ref 回调主动检查一次
   const onImgRef = useCallback((el: HTMLImageElement | null) => {
     if (el?.complete) setLoaded(true);
   }, []);
+  // 裁剪样式只随焦点/缩放变化，避免父组件重渲染时反复建对象
+  const cover = memory.cover;
+  const style = useMemo(
+    () =>
+      cover
+        ? coverStyle({ x: cover.focalX, y: cover.focalY, scale: cover.cropScale })
+        : undefined,
+    [cover],
+  );
 
   return (
     <div
@@ -68,11 +83,7 @@ function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }
           loading="eager"
           decoding="async"
           onLoad={() => setLoaded(true)}
-          style={coverStyle({
-            x: memory.cover.focalX,
-            y: memory.cover.focalY,
-            scale: memory.cover.cropScale,
-          })}
+          style={style}
           className={`h-full w-full object-cover transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
@@ -84,7 +95,8 @@ function MemoryCardFace({ memory, tier }: { memory: MemoryCard; tier: CardTier }
       )}
     </div>
   );
-}
+});
+
 
 /**
  * 记忆展示总入口：宽屏=横向轨道（默认上下两行），窄屏=左右两列纵向轨道。
@@ -301,7 +313,49 @@ function TileBoard({
   );
 }
 
-/** 多轨流动：大半径滚筒（近似平面），只渲染可见卡片，两端渐隐 */
+/** 流动形态里一张卡的静态布局（与 offset 无关的部分） */
+type FlowItem = {
+  m: MemoryCard;
+  /** 主轴上的未回绕基准位置（offset = 0 时） */
+  base: number;
+  /** 回绕环长：同一轨道内所有卡片相同 */
+  span: number;
+  /** 交叉方向位置（静态，JSX 里定死） */
+  cross: number;
+  /** 卡片自身旋转（不含大半径弧度） */
+  rot: number;
+};
+
+/** 把一张卡写到主轴位置：只写 transform（不写 left/top，避免每帧触发布局） */
+function placeCard(
+  el: HTMLElement,
+  it: FlowItem,
+  main: number,
+  vertical: boolean,
+  mainLen: number,
+  radius: number,
+) {
+  // 大半径带来的轻微弧度
+  const arc = ((main - mainLen / 2) / radius) * 57.2958;
+  const rot = it.rot + (vertical ? -arc : arc);
+  el.style.transform = vertical
+    ? `translate3d(0, ${main.toFixed(2)}px, 0) translate(-50%, -50%) rotate(${rot.toFixed(3)}deg)`
+    : `translate3d(${main.toFixed(2)}px, 0, 0) translate(-50%, -50%) rotate(${rot.toFixed(3)}deg)`;
+}
+
+/** 主轴位置：把「基准 + offset」回绕到环内，再换算成屏幕坐标 */
+function mainPos(it: FlowItem, offset: number, mainLen: number) {
+  const wrapped = (((it.base + offset) % it.span) + it.span) % it.span;
+  return wrapped - it.span / 2 + mainLen / 2;
+}
+
+/**
+ * 多轨流动：大半径滚筒（近似平面），只渲染可见卡片（含屏外缓冲），两端渐隐。
+ *
+ * 性能要点：**每帧只写 DOM transform，绝不 setState**。可见集合与星轨光标
+ * 用「变了才 setState」的方式更新（按 12px/s 与 ≥480px 的步长，几秒~几十秒才变一次），
+ * 否则 12 张卡 + 星轨每帧重渲染要烧掉约 4ms/帧（改前的卡顿主因）。
+ */
 function FlowTracks({
   memories,
   card,
@@ -334,64 +388,112 @@ function FlowTracks({
   const zoneStart = vertical ? RAIL_CROSS : 0;
   const zoneLen = Math.max(cardCross, crossLen - (vertical ? RAIL_CROSS : railMain));
   const trackCross = trackCrossPositions(zoneStart, zoneLen, cardCross, tracks);
+  // 屏外提前渲染一段距离：让图片有时间加载完成，卡片滑入时不再「突然出现」
+  const buffer = Math.max(step, mainLen * 0.25);
 
   // 自走 + 拖动 + 惯性由公共 hook 提供；这里只算每张卡片的落点
   const {
     containerRef,
-    offset,
+    offsetRef,
     ready,
+    onFrame,
     onPointerDown,
     onPointerMove,
     endDrag,
     justDragged,
   } = useTrackFlow({ mainLen, vertical });
 
+  /** 静态布局：只在条数 / 轨道数 / 尺寸变化时重算 */
+  const items = useMemo<FlowItem[]>(() => {
+    const counts = Array.from({ length: tracks }, () => 0);
+    for (let i = 0; i < memories.length; i++) counts[i % tracks]++;
+    const seen = Array.from({ length: tracks }, () => 0);
+    return memories.map((m, i) => {
+      const track = i % tracks;
+      const k = seen[track]++;
+      const tilt = flowTilt(m.seed, i, track);
+      return {
+        m,
+        // 均匀分布 + 沿轨道小幅扰动：既随机又不重叠
+        base: k * step + tilt.jitter * TRACK_GAP * 0.6,
+        span: Math.max(1, counts[track]) * step,
+        cross: trackCross[track] + tilt.lag * zoneLen,
+        rot: tilt.rotate,
+      };
+    });
+  }, [memories, tracks, step, trackCross, zoneLen]);
+
+  const itemById = useMemo(() => new Map(items.map((it) => [it.m.id, it])), [items]);
+  const elsRef = useRef(new Map<string, HTMLDivElement>());
+  const idsKeyRef = useRef("");
+  const activeIdRef = useRef<string | null>(null);
+  const [visibleIds, setVisibleIds] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  /** 挂载瞬间按当前 offset 放好，否则新卡片会先在左上角露一帧 */
+  const elRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return;
+      const id = el.dataset.id;
+      const it = id ? itemById.get(id) : undefined;
+      if (!it) return;
+      elsRef.current.set(it.m.id, el);
+      placeCard(
+        el,
+        it,
+        mainPos(it, offsetRef.current, mainLen),
+        vertical,
+        mainLen,
+        radius,
+      );
+      return () => {
+        elsRef.current.delete(it.m.id);
+      };
+    },
+    [itemById, offsetRef, mainLen, vertical, radius],
+  );
+
+  /** 每帧：算可见集合 → 写 transform → 只有集合/光标变化时才 setState */
+  const update = useCallback(
+    (offset: number) => {
+      const ids: string[] = [];
+      let best: string | null = null;
+      let bestD = Infinity;
+      for (const it of items) {
+        const main = mainPos(it, offset, mainLen);
+        if (main < -cardMain - buffer || main > mainLen + buffer) continue;
+        ids.push(it.m.id);
+        const el = elsRef.current.get(it.m.id);
+        if (el) placeCard(el, it, main, vertical, mainLen, radius);
+        const d = Math.abs(main - mainLen / 2);
+        if (d < bestD) {
+          bestD = d;
+          best = it.m.id;
+        }
+      }
+      const key = ids.join("|");
+      if (key !== idsKeyRef.current) {
+        idsKeyRef.current = key;
+        setVisibleIds(ids);
+      }
+      if (best !== activeIdRef.current) {
+        activeIdRef.current = best;
+        setActiveId(best);
+      }
+    },
+    [items, mainLen, cardMain, buffer, vertical, radius],
+  );
+
+  useEffect(() => onFrame(update), [onFrame, update]);
+  // 布局变化后先同步补一遍（setState 在 layout 阶段刷完，不会闪）
+  useLayoutEffect(() => {
+    update(offsetRef.current);
+  }, [update, offsetRef]);
+
   /** 刚拖过就别把这次抬手当成点击 */
   function openMemory(id: string) {
     if (justDragged()) return;
     router.push(`/memory/${id}`);
-  }
-
-  // 计算可见卡片（含一张卡缓冲，滑动时不闪）。
-  // 稀疏化后 span 远大于屏幕，循环边界的跳变发生在屏幕外（且被两端渐隐遮住），不会看到瞬移。
-  const counts = Array.from({ length: tracks }, () => 0);
-  for (let i = 0; i < memories.length; i++) counts[i % tracks]++;
-  const seen = Array.from({ length: tracks }, () => 0);
-  const nodes: { key: string; m: MemoryCard; main: number; cross: number; rot: number }[] = [];
-  // 屏外提前渲染一段距离：让图片有时间加载完成，卡片滑入时不再「突然出现」
-  const buffer = Math.max(step, mainLen * 0.25);
-  memories.forEach((m, i) => {
-    const track = i % tracks;
-    const k = seen[track]++;
-    const cnt = Math.max(1, counts[track]);
-    const span = cnt * step;
-    const tilt = flowTilt(m.seed, i, track);
-    // 均匀分布 + 整体随机偏移（offset）+ 沿轨道小幅扰动：既随机又不重叠
-    const raw = k * step + offset + tilt.jitter * TRACK_GAP * 0.6;
-    const wrapped = ((raw % span) + span) % span;
-    const main = wrapped - span / 2 + mainLen / 2;
-    if (main < -cardMain - buffer || main > mainLen + buffer) return;
-    const cross = trackCross[track] + tilt.lag * zoneLen;
-    // 大半径带来的轻微弧度
-    const arc = ((main - mainLen / 2) / radius) * 57.2958;
-    nodes.push({
-      key: m.id,
-      m,
-      main,
-      cross,
-      rot: tilt.rotate + (vertical ? -arc : arc),
-    });
-  });
-
-  // 当前最接近屏幕中心的卡片：供星轨光标使用
-  let activeId: string | null = null;
-  let bestD = Infinity;
-  for (const n of nodes) {
-    const d = Math.abs(n.main - mainLen / 2);
-    if (d < bestD) {
-      bestD = d;
-      activeId = n.m.id;
-    }
   }
 
   // 两端渐隐（用 mask，GPU 合成，比逐卡片 opacity 更平滑）
@@ -409,36 +511,41 @@ function FlowTracks({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
-      <div
-        className="absolute inset-0"
-        style={{ maskImage: mask, WebkitMaskImage: mask }}
-      >
-        {nodes.map(({ key, m, main, cross, rot }) => (
-          <div
-            key={key}
-            className="absolute"
-            style={{
-              left: vertical ? cross : main,
-              top: vertical ? main : cross,
-              transform: `translate(-50%, -50%) rotate(${rot}deg)`,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => openMemory(m.id)}
-              className="block cursor-pointer outline-none"
+      <div className="absolute inset-0" style={{ maskImage: mask, WebkitMaskImage: mask }}>
+        {visibleIds.map((id) => {
+          const it = itemById.get(id);
+          if (!it) return null;
+          const m = it.m;
+          return (
+            <div
+              key={id}
+              ref={elRef}
+              data-id={id}
+              className="absolute will-change-transform"
+              style={{
+                left: vertical ? it.cross : 0,
+                top: vertical ? 0 : it.cross,
+                // 挂载瞬间的兜底：先放到屏幕外，随后 elRef 用真实 offset 修正
+                transform: "translate3d(-99999px, -99999px, 0)",
+              }}
             >
-              <MemoryCardFace memory={m} tier={tier} />
-              {tier !== "tiny" && (
-                <p
-                  className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
-                >
-                  {m.title}
-                </p>
-              )}
-            </button>
-          </div>
-        ))}
+              <button
+                type="button"
+                onClick={() => openMemory(m.id)}
+                className="block cursor-pointer outline-none"
+              >
+                <MemoryCardFace memory={m} tier={tier} />
+                {tier !== "tiny" && (
+                  <p
+                    className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
+                  >
+                    {m.title}
+                  </p>
+                )}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {vertical ? (

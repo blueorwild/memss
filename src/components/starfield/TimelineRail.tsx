@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import type { MemoryCard } from "@/lib/db/queries";
 
@@ -32,7 +33,11 @@ function monthIndex(date: string | null): number | null {
   return y * 12 + (m - 1);
 }
 
-export default function TimelineRail({
+/**
+ * 横向时间弧线（宽屏）：贴屏底、上凸，两端渐隐；有光标时跟随「最靠近屏幕中心的回忆」。
+ * 用 memo 包住：流动形态下位置由 DOM 直接驱动，星轨不该跟着每帧重渲染。
+ */
+const TimelineRail = memo(function TimelineRail({
   memories,
   activeId,
   showCursor = false,
@@ -170,13 +175,15 @@ export default function TimelineRail({
       )}
     </div>
   );
-}
+});
+
+export default TimelineRail;
 
 /**
  * 纵向时间轴（窄屏）：贴左侧竖直排列（下早、上晚），
  * 与纵向滚筒的当前卡片联动显示光标。
  */
-export function VerticalTimelineRail({
+export const VerticalTimelineRail = memo(function VerticalTimelineRail({
   memories,
   activeId,
   showCursor = false,
@@ -313,4 +320,4 @@ export function VerticalTimelineRail({
       )}
     </div>
   );
-}
+});
