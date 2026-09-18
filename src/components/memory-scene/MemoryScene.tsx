@@ -278,18 +278,15 @@ export default function MemoryScene({
           <Breadcrumb items={crumbItems} />
           <BackButton onClick={handleBack} />
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <span className="text-sm text-white/50">{memory.date}</span>
-          <MoreMenu
-            items={[
-              {
-                label: "编辑",
-                onSelect: () => useSpriteStore.getState().openEdit(memory.id),
-              },
-              { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
-            ]}
-          />
-        </div>
+        <MoreMenu
+          items={[
+            {
+              label: "编辑",
+              onSelect: () => useSpriteStore.getState().openEdit(memory.id),
+            },
+            { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
+          ]}
+        />
       </header>
 
       {/* 遗忘确认弹层：由右上角「⋯」菜单触发 */}
@@ -391,7 +388,15 @@ export default function MemoryScene({
 
         <div className="space-y-3 sm:space-y-4">
           <p className="text-sm tracking-wide text-white/60">{memory.location}</p>
-          <h1 className="text-2xl font-semibold sm:text-3xl lg:text-4xl">{memory.title}</h1>
+          {/* 标题行：标题左、时间右（暖金 = 时间/回忆语义），窄屏标题自行换行 */}
+          <div className="flex items-baseline justify-between gap-3">
+            <h1 className="min-w-0 break-words text-2xl font-semibold sm:text-3xl lg:text-4xl">
+              {memory.title}
+            </h1>
+            {memory.date && (
+              <span className="shrink-0 whitespace-nowrap text-sm text-warm/70">{memory.date}</span>
+            )}
+          </div>
           {memory.description && (
             <p className="max-w-2xl whitespace-pre-wrap break-words leading-7 text-white/75 sm:leading-8">
               {memory.description}
