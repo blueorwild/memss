@@ -343,3 +343,19 @@
   - 踩坑：`next dev` 不接受指向项目外的 `node_modules` 软链（"symlink points out of the filesystem root"），用 `cp -Rc`（APFS clonefile）几秒拷完 762M。
   - 踩坑：CDP 里用 `header + div button` 抓按钮会被页面其它按钮污染，断言按钮集合时要按标签前缀过滤。
 - 折叠区块需求不要用「key + defaultOpen」赌重新挂载，直接给 `SettingsSection` 加 `locked`（常开不可折叠）更确定。
+
+## 访客对话从 Zen 改到 OpenRouter 免费档（2026-09-18）
+
+- **先探测再改代码**又赚了一次：Zen 的免费档是服务端硬门禁（`403 FreeTierError: free tier can only be used from within OpenCode`），
+  四个免费档全试过都一样；Zen 付费档 401（没余额）；只有 OpenCode **Go** 订阅通道站外可用。
+  → 结论：**"OpenCode 里的免费模型"≠"OpenCode Zen 的免费模型"**，官网写"限时免费"不代表第三方可用。不要试图伪造 OpenCode 客户端身份绕过。
+  用户最终选 **OpenRouter `:free`**（真第三方、$0），并用 `GET /api/v1/key` 确认了免费档额度（50/天，20/分）。
+- 用户的偏好又印证一次：**能实时探测的就不要写死**（"轮换的时候能自动更新吗"）。所以清单是服务端拉 OpenRouter `/models` 过滤出来的，
+  写死的只剩一个"列表都拉不到时的兜底 id"。做这类第三方清单，**SWR + 单飞 + 冷启动重试**是标配。
+- **踩坑（必须记住）**：OpenRouter 的 `models` 兜底数组**最多 3 项**，写 4 项直接 `400 'models' array must have 3 items or fewer`。
+- **踩坑**：免费档里推理模型很多，不带 `reasoning: { enabled: false }` 会出现"正文只有一个空格、216 字全在 reasoning 里"——流式看起来像模型没说话。
+- **踩坑**：`:free` 后缀 + `pricing` 全 0 还不够，`google/lyria-*` 那种 0 价音乐模型也会混进来（且可能让整个 `models` 链 400）；
+  再加一条 `architecture.output_modalities` 含 `text` 的过滤才稳。
+- **验证方法教训（重复犯过）**：断言"拿到了模型回复"时，别只按助手气泡的样式抓——第一版抓到了本地的**欢迎语气泡**，于是"对话失败"被我误判成 PASS。
+  正确做法是**按气泡顺序取最后一条**并断言它 ≠ 欢迎语。（上一轮也吃过类似"选择器太宽"的亏。）
+- 密钥迁移用**前缀筛**（`sk-or-`）而不是加标记字段，省掉一次数据迁移，旧 Zen key 自动视为未配置。

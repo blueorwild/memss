@@ -578,3 +578,58 @@ ai_try/
 ### 待办 / 注意
 - **访客对话尚未接真实模型**：需要站长在「设置 → 访客对话」填 Zen API Key（或设 `ZEN_API_KEY`）；填之前访客发消息会看到「暂不可用」。
 - 白名单只收录 OpenAI 兼容 `/chat/completions` 的免费档（`union-alpha` 走 `/messages`、`muse-spark-1.3-contributor-free` 走 `/responses`，需要另外的 SDK，暂不收录）。
+
+## 25. 访客对话改用 OpenRouter 免费档（已完成）
+
+### 背景：Zen 免费档站外不可用（实测）
+原计划用 OpenCode Zen 的免费模型，实测发现是**服务端硬门禁**，拿 Zen key 在站外调用一律：
+
+```
+403 {"type":"error","error":{"type":"FreeTierError",
+  "message":"OpenCode's free tier can only be used from within OpenCode"}}
+```
+
+逐个测过 `nemotron-3.5-lightning-free` / `mimo-v2.5-free` / `big-pickle` / `ling-3.0-flash-fin-free`，全是 403；
+Zen 的付费档则返回 `401 CreditsError: Insufficient balance`（工作区没余额）；而 OpenCode **Go** 订阅通道（`/zen/go/v1`，小精灵自己用的那条）站外可用。
+不伪造 OpenCode 客户端身份绕过门禁，所以访客通道改为 **OpenRouter 的 `:free` 模型**（真第三方可用、$0）。
+
+### 设计：实时探测，不写死清单
+- `src/lib/guest-models.ts`：服务端拉 `https://openrouter.ai/api/v1/models`，只保留
+  **id 以 `:free` 结尾 + pricing 全 "0" + 能输出文本**（排除 Lyria 这类 0 价但只出音频的）→ 当前 21 个。
+  排序 **deepseek 优先 → 上下文长度降序 → id**，默认取 `deepseek/deepseek-v4-flash-0731:free`。
+  - 缓存 6 小时 + SWR（过期先给旧列表、后台刷新）+ 单飞；冷启动失败重试一次。
+  - 唯一写死的只有 `FALLBACK_DEFAULT_MODEL`（连列表都拉不到时兜底）。
+- `GET /api/guest/models`（新，公开只读）：`{ ok, defaultModel, models:[{id,name,ctx}] }`，不含任何密钥信息。
+- 前端：`fetchGuestModels()` 模块级缓存；访客本地存的坑位若已下线（轮换）→ 自动回落默认并回写 localStorage。
+  **所以 OpenRouter 轮换免费模型时是自动跟上的。**
+- 服务端校验访客传的 model：不在当前列表 → 回落默认，并带 `models: [首选, …]` 兜底链
+  （⚠️ OpenRouter 限制该数组**最多 3 项**，超出直接 400；首版写成 4 项踩过这个坑）。
+
+### 访客请求（`/api/agent` 访客分支改为裸 fetch + SSE 直通）
+- `POST https://openrouter.ai/api/v1/chat/completions`，头 `Authorization: Bearer <key>`、`X-Title: MemSS`。
+- 必须带 **`reasoning: { enabled: false }`**：免费档里推理模型很多，不关掉会出现「正文只有一个空格、思考全在 reasoning 里」
+  （实测 deepseek-free 不带该参数时正文就是 `" "`）。
+- 流式：上游 SSE → 我们的 `{type:"text"|"error"|"done"}`；只在拿到过正文时才不报错，否则提示「这个免费模型这次没说话」。
+- 迁移到 AI SDK 之外的原因：需要精确控制 `reasoning` / `models` / 错误文案；无工具、无落库，比 SDK 更省事。
+- 错误映射中文：401 密钥无效 / 402 余额为负 / 429 免费档限速 / 400·404·「temporarily rate-limited」→ 换一个模型。
+
+### 密钥与设置
+- 存 `settings` key=`guest`，密文复用 `crypto.ts`；env `OPENROUTER_API_KEY` 优先。
+- **按前缀筛**：只有 `sk-or-` 开头的才算有效配置，早期版本存的 Zen key 自动视为未配置（否则会拿 Zen key 敲 OpenRouter 报 401）。
+- 站长侧「访客对话（免费模型）」：填 key + 三步说明（注册 → 建 key → 打开免费档隐私开关）+ 限速与「内容可能被记录/训练」提示 + `sk-or-` 前缀提示。
+- 访客侧「免费模型」：Combobox 展示实时列表（名称 + 上下文），默认项标注。
+- 访客对话**无站内限流**（按用户要求），实际天花板是 OpenRouter 免费档：**20 次/分、50 次/天**（累计充值 $10 → 1000 次/天）。
+
+### 验证
+- 探测：`GET /key` 200（`is_free_tier: true`，50/天）；deepseek 带 `reasoning:{enabled:false}` 流式**首字 1.5s、总 2.2s**；
+  `models` 兜底链实测把被限流的 qwen 自动切到 deepseek（200）。
+- `/tmp/guest-chat-verify.mjs` **12/12**（真实 3000 dev server，访客态）：实时列表 21 个且默认 deepseek；访客真发一条拿到**模型回复**（不是欢迎语）；
+  未写 `sprite:conversationId`；手改 `openai/gpt-6-astra` → 200 且正常回答（回落生效）；无 console 异常。
+- 落库检查：对话前后 `conversations 4 / messages 100` **完全不变**。
+- 站长侧回归（临时副本 + 独立 DB 的 3101 实例）：`flow-behavior` **20/20**；设置面板四块齐全（账号 · 已登录 / 模型服务 / 访客对话 / 关于）。
+- `tsc` / `eslint` / `next build` 全绿。
+- 截图：`/tmp/guest-chat-reply.png`、`/tmp/guest-free-models.png`、`/tmp/guest-owner-settings.png`、`/tmp/guest-owner-key.png`。
+
+### 注意
+- 免费档上游不稳（探测时 qwen / gemma 直接 429），靠 `models` 兜底 + 访客可切换缓解；列表随时可能被官方轮换，代码无需改动。
+- 免费档可能记录/训练数据（用户已确认接受），设置与「关于」里都有提示。

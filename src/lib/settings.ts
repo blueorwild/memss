@@ -155,19 +155,28 @@ export function resolveActiveProvider(config: AgentConfig = getAgentConfig()): R
   };
 }
 
-// ---------- 访客对话（Zen 免费模型） ----------
+// ---------- 访客对话（OpenRouter 免费模型） ----------
 
-/** 访客配置：只用一把 Zen 密钥（选哪个免费模型由访客在白名单里自己挑） */
+/**
+ * 访客配置：只用一把 OpenRouter 密钥。
+ * 早期版本这里存的是 OpenCode Zen 的 key（Zen 免费档不允许站外调用，已弃用），
+ * 所以读的时候**按前缀筛**：不是 `sk-or-` 开头的当作没配置，免得拿旧 key 去敲 OpenRouter。
+ */
 type GuestConfig = {
   apiKeyEnc: string | null;
 };
+
+/** OpenRouter 的密钥前缀 */
+const OPENROUTER_KEY_PREFIX = "sk-or-";
 
 /** 返回给前端的访客配置：密钥只给 hasKey 与掩码 */
 export type PublicGuestConfig = {
   hasKey: boolean;
   keyMask: string;
-  /** 密钥来自环境变量 ZEN_API_KEY（此时界面不允许改） */
+  /** 密钥来自环境变量 OPENROUTER_API_KEY（此时界面不允许改） */
   fromEnv: boolean;
+  /** 密钥看起来像不像 OpenRouter 的（sk-or- 开头），用于界面提示 */
+  keyLooksValid: boolean;
 };
 
 export type SaveGuestConfigInput = {
@@ -179,27 +188,32 @@ function parseGuestConfig(raw: string | null): GuestConfig {
   if (!raw) return { apiKeyEnc: null };
   try {
     const parsed = JSON.parse(raw) as { apiKeyEnc?: unknown };
-    return { apiKeyEnc: typeof parsed.apiKeyEnc === "string" ? parsed.apiKeyEnc : null };
+    const enc = typeof parsed.apiKeyEnc === "string" ? parsed.apiKeyEnc : null;
+    if (!enc) return { apiKeyEnc: null };
+    // 旧版本存的 Zen key 直接视为未配置
+    const plain = decryptSecret(enc);
+    return plain && plain.startsWith(OPENROUTER_KEY_PREFIX) ? { apiKeyEnc: enc } : { apiKeyEnc: null };
   } catch {
     return { apiKeyEnc: null };
   }
 }
 
-/** 访客对话实际使用的 Zen Key：环境变量优先，其次是设置里保存的（密文解密） */
+/** 访客对话实际使用的密钥：环境变量优先，其次是设置里保存的（密文解密） */
 export function resolveGuestApiKey(): string {
-  const env = process.env.ZEN_API_KEY?.trim();
+  const env = process.env.OPENROUTER_API_KEY?.trim();
   if (env) return env;
   const c = parseGuestConfig(getSetting(GUEST_KEY));
   return c.apiKeyEnc ? (decryptSecret(c.apiKeyEnc) ?? "") : "";
 }
 
 export function getPublicGuestConfig(): PublicGuestConfig {
-  const fromEnv = Boolean(process.env.ZEN_API_KEY?.trim());
+  const fromEnv = Boolean(process.env.OPENROUTER_API_KEY?.trim());
   const plain = resolveGuestApiKey();
   return {
     hasKey: Boolean(plain),
     keyMask: plain ? maskSecret(plain) : "",
     fromEnv,
+    keyLooksValid: plain.startsWith(OPENROUTER_KEY_PREFIX),
   };
 }
 

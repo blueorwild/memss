@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import {
-  DEFAULT_FREE_MODEL,
-  FREE_MODELS,
-  readFreeModelChoice,
-  writeFreeModelChoice,
-} from "@/lib/free-models";
+  fetchGuestModels,
+  formatContext,
+  readGuestModelChoice,
+  resetGuestModelsCache,
+  writeGuestModelChoice,
+  type GuestModelsPayload,
+} from "@/lib/guest-models";
 import { PROVIDER_PRESETS, type ProviderId } from "@/lib/providers";
 import { Combobox } from "@/components/ui/combobox";
 import AccountPanel from "./AccountPanel";
@@ -29,6 +31,7 @@ type PublicGuestConfig = {
   hasKey: boolean;
   keyMask: string;
   fromEnv: boolean;
+  keyLooksValid: boolean;
 };
 
 /** 输入框通用样式（移动端 16px 字号，避免 iOS 聚焦时自动放大） */
@@ -333,19 +336,22 @@ function GuestChatSection() {
 
   const placeholder = guest?.hasKey
     ? `${guest.keyMask}（留空不修改）`
-    : "粘贴 OpenCode Zen 的 API Key";
+    : "粘贴 OpenRouter 的 API Key（sk-or-…）";
 
   return (
     <SettingsSection title="访客对话（免费模型）">
       <p className="text-xs text-white/45">
-        未登录的访客只能用 Zen 的免费模型闲聊，用它代付。没有配置时访客对话会提示暂不可用。
+        未登录的访客只能闲聊，模型走 OpenRouter 的免费档（$0），由这把密钥代付；
+        访客看不到也改不了它。没有配置时访客对话会提示暂不可用。
       </p>
       {guest?.fromEnv ? (
-        <p className="text-xs text-white/45">已由环境变量 ZEN_API_KEY 提供，界面不可修改。</p>
+        <p className="text-xs text-white/45">
+          已由环境变量 OPENROUTER_API_KEY 提供，界面不可修改。
+        </p>
       ) : (
         <>
           <div>
-            <label className={labelCls}>Zen API Key</label>
+            <label className={labelCls}>OpenRouter API Key</label>
             <div className="flex gap-2">
               <input
                 type="password"
@@ -376,6 +382,14 @@ function GuestChatSection() {
               )}
             </div>
           </div>
+          {guest?.hasKey && !guest.keyLooksValid && (
+            <p className="text-[11px] text-warm/80">
+              这把密钥不是 sk-or- 开头，可能不是 OpenRouter 的。
+            </p>
+          )}
+          <p className="text-[11px] text-white/35">
+            注意，免费档的对话内容可能被上游记录或用于训练。
+          </p>
           {status && <p className="text-xs text-ok">{status}</p>}
           {error && <p className="text-xs text-red-400">{error}</p>}
           <button
@@ -392,40 +406,88 @@ function GuestChatSection() {
   );
 }
 
-/** 访客专属：在免费模型白名单里挑一个（只存本地，不涉及任何密钥） */
+/**
+ * 访客专属：从 OpenRouter 的实时免费档里挑一个。
+ * 列表由服务端缓存后下发（`/api/guest/models`），官方轮换免费模型时这里会自动跟上；
+ * 本地存的坑位若已下线，会自动回落到默认模型。
+ */
 function FreeModelSection() {
-  const [choice, setChoice] = useState(DEFAULT_FREE_MODEL);
+  const [payload, setPayload] = useState<GuestModelsPayload | null>(null);
+  const [choice, setChoice] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setChoice(readFreeModelChoice()), 0);
-    return () => window.clearTimeout(timer);
+    let alive = true;
+    void fetchGuestModels().then((data) => {
+      if (!alive) return;
+      setPayload(data);
+      const saved = readGuestModelChoice();
+      const valid =
+        saved && data.models.some((m) => m.id === saved) ? saved : data.defaultModel;
+      setChoice(valid);
+      if (valid !== saved) writeGuestModelChoice(valid);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const current = FREE_MODELS.find((m) => m.id === choice) ?? FREE_MODELS[0];
+  function retry() {
+    resetGuestModelsCache();
+    setPayload(null);
+    void fetchGuestModels().then((data) => {
+      setPayload(data);
+      setChoice((prev) =>
+        prev && data.models.some((m) => m.id === prev) ? prev : data.defaultModel,
+      );
+    });
+  }
+
+  const models = payload?.models ?? [];
+  const current = models.find((m) => m.id === choice);
 
   return (
     <SettingsSection title="免费模型" defaultOpen>
-      <p className="text-xs text-white/45">挑一个陪你聊天的模型（由站长统一提供，无需填写密钥）。</p>
-      <div className="flex flex-wrap gap-2">
-        {FREE_MODELS.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => {
-              setChoice(m.id);
-              writeFreeModelChoice(m.id);
+      <p className="text-xs text-white/45">
+        挑一个陪你聊天的模型（由站长统一提供，无需填写密钥）。
+      </p>
+      {payload === null ? (
+        <p className="text-xs text-white/40">读取中…</p>
+      ) : (
+        <>
+          <Combobox
+            options={models.map((m) => ({
+              value: m.id,
+              label: `${m.name} · ${formatContext(m.ctx)}`,
+            }))}
+            value={choice}
+            onChange={(id) => {
+              setChoice(id);
+              writeGuestModelChoice(id);
             }}
-            className={`min-h-9 rounded-full px-3 py-1.5 text-xs transition-colors sm:min-h-0 sm:py-1 ${
-              choice === m.id
-                ? "bg-white/15 text-white"
-                : "text-white/60 hover:bg-white/10 hover:text-white"
-            }`}
-          >
-            {m.name}
-          </button>
-        ))}
-      </div>
-      {current.note && <p className="text-[11px] text-warm/70">{current.note}</p>}
+            placeholder={current ? `${current.name} · ${formatContext(current.ctx)}` : "选择模型"}
+            emptyText="暂无可用模型"
+            disabled={models.length === 0}
+          />
+          {models.length === 0 && (
+            <button
+              type="button"
+              onClick={retry}
+              className="px-1 py-1 text-[11px] text-white/50 underline transition-colors hover:text-white"
+            >
+              免费模型列表获取失败，点此重试
+            </button>
+          )}
+          {payload.ok && models.length > 0 && (
+            <p className="text-[11px] text-white/35">
+              免费档列表跟随 OpenRouter 实时更新；
+              免费档每分 20 次 / 每天 50 次，被限流时换个模型或稍后再试。
+            </p>
+          )}
+          <p className="text-[11px] text-warm/70">
+            免费模型可能记录使用数据，请勿输入隐私内容。
+          </p>
+        </>
+      )}
     </SettingsSection>
   );
 }
@@ -438,7 +500,7 @@ function AboutSection() {
         MemSS：以星空承载个人回忆。把照片与故事挂成星星，按地点与时间漫游。
       </p>
       <p className="text-[11px] text-white/35">
-        免费模型多为试用 / 隐身档，可能会记录使用数据，请勿输入隐私内容。
+        访客聊天的免费模型来自 OpenRouter，内容可能被上游记录或用于训练，请勿输入隐私内容。
       </p>
     </SettingsSection>
   );

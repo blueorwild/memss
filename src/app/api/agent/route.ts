@@ -3,7 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { isStepCount, streamText } from "ai";
 import type { ModelMessage } from "ai";
 import { isOwner } from "@/lib/auth";
-import { DEFAULT_FREE_MODEL, FREE_MODEL_BASE_URL, isFreeModel } from "@/lib/free-models";
+import { OPENROUTER_BASE_URL, resolveGuestModel } from "@/lib/guest-models";
 import { resolveActiveProvider, resolveGuestApiKey } from "@/lib/settings";
 import { createAgentTools, type ClientAction } from "@/lib/agent-tools";
 import {
@@ -136,7 +136,7 @@ function toModelMessages(rows: Message[], currentText: string): ModelMessage[] {
 
 /**
  * 未登录访客的人格：只闲聊与介绍站点，不碰任何回忆数据，需要回忆时引导登录。
- * 访客走 Zen 免费模型（无工具调用、不落库）。
+ * 访客走 OpenRouter 免费档（无工具调用、不落库）。
  */
 const GUEST_SYSTEM_PROMPT = [
   "你是「MemSS」里的小精灵，常驻在一座以星空承载个人回忆的网站里。",
@@ -170,44 +170,133 @@ function parseGuestHistory(raw: unknown): GuestTurn[] {
   return out.slice(-GUEST_HISTORY_MAX);
 }
 
-/** 访客对话：Zen 免费模型 + 无工具 + 不落库（历史由前端每轮带上） */
-function guestChat(raw: unknown, text: string): Response {
+/** 把 OpenRouter 的失败翻译成人话（访客看得到，不泄露内部细节） */
+function guestErrorMessage(status: number, detail: string): string {
+  const raw = detail.replace(/\s+/g, " ").slice(0, 160);
+  if (status === 401 || status === 498) {
+    return "访客对话暂不可用：OpenRouter 密钥无效（站长可在设置里更新）";
+  }
+  if (status === 402) {
+    return "访客对话暂不可用：OpenRouter 账户余额为负，请站长处理后再试";
+  }
+  if (status === 429) {
+    return "免费模型这会儿被限流了（免费档每分 20 次 / 每天 50 次），稍后再试或换一个模型";
+  }
+  if (status === 503) {
+    return "免费模型当前没有可用通道，稍后再试或换一个模型";
+  }
+  if (
+    status === 400 ||
+    status === 404 ||
+    /not a valid model|no allowed providers|no endpoints|unavailable|temporarily rate-limited/i.test(raw)
+  ) {
+    return "这个免费模型暂时不可用了，换一个模型再试试";
+  }
+  return `访客对话出错了：${raw || `HTTP ${status}`}`;
+}
+
+/**
+ * 访客对话：OpenRouter 免费档 + 无工具 + 不落库（历史由前端每轮带上）。
+ * 直接用裸 fetch 转发 SSE：这样才能精确控制 `reasoning`（推理模型不关掉就只吐思考、正文空白）、
+ * `models`（首选被限流/下线时由 OpenRouter 自动兜底）以及错误文案。
+ */
+async function guestChat(raw: unknown, text: string): Promise<Response> {
   const body = (raw ?? {}) as { model?: unknown; history?: unknown };
 
   const apiKey = resolveGuestApiKey();
   if (!apiKey) {
     return Response.json(
-      { error: "访客对话暂不可用：站长还没有配置免费模型的密钥" },
+      { error: "访客对话暂不可用：站长还没有配置 OpenRouter 的密钥" },
       { status: 503 },
     );
   }
 
-  const modelId = isFreeModel(typeof body.model === "string" ? body.model : undefined)
-    ? (body.model as string)
-    : DEFAULT_FREE_MODEL;
-  const messages: ModelMessage[] = [
+  const requested = typeof body.model === "string" ? body.model : undefined;
+  const { model, chain } = await resolveGuestModel(requested);
+  const messages = [
+    { role: "system", content: GUEST_SYSTEM_PROMPT },
     ...parseGuestHistory(body.history),
     { role: "user", content: text },
   ];
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "X-Title": "MemSS",
+      },
+      body: JSON.stringify({
+        model,
+        // 首选 + 若干免费档兜底：被上游限流或下线时自动切换
+        ...(chain.length > 1 ? { models: chain } : {}),
+        // 免费档里推理模型不少，不关掉的话正文可能只有一个空格
+        reasoning: { enabled: false },
+        stream: true,
+        messages,
+      }),
+    });
+  } catch (err) {
+    return Response.json({ error: errorMessage(err) }, { status: 502 });
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    const status = upstream.status || 502;
+    return Response.json(
+      { error: guestErrorMessage(status, detail) },
+      { status: status >= 500 ? 502 : status },
+    );
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const reader = upstream.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let gotText = false;
       try {
-        const model = createOpenAICompatible({
-          name: "opencode-zen",
-          baseURL: FREE_MODEL_BASE_URL,
-          apiKey,
-          headers: { "User-Agent": "memory-starfield/1.0" },
-        }).chatModel(modelId);
-
-        const result = streamText({ model, system: GUEST_SYSTEM_PROMPT, messages });
-        for await (const part of result.fullStream) {
-          if (part.type === "text-delta") send({ type: "text", delta: part.text });
-          else if (part.type === "error") send({ type: "error", message: errorMessage(part.error) });
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx = buffer.indexOf("\n");
+          while (idx >= 0) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            idx = buffer.indexOf("\n");
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            let evt: {
+              error?: { code?: number; message?: string };
+              choices?: { delta?: { content?: unknown } }[];
+            };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.error) {
+              send({
+                type: "error",
+                message: guestErrorMessage(evt.error.code ?? 502, JSON.stringify(evt.error)),
+              });
+              continue;
+            }
+            const delta = evt.choices?.[0]?.delta?.content;
+            if (typeof delta === "string" && delta) {
+              gotText = true;
+              send({ type: "text", delta });
+            }
+          }
         }
+        if (!gotText) send({ type: "error", message: "这个免费模型这次没说话，换一个再试试" });
         send({ type: "done" });
       } catch (err) {
         send({ type: "error", message: errorMessage(err) });
@@ -215,6 +304,9 @@ function guestChat(raw: unknown, text: string): Response {
       } finally {
         controller.close();
       }
+    },
+    cancel() {
+      upstream.body?.cancel().catch(() => {});
     },
   });
 
@@ -246,7 +338,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: `消息太长了（最多 ${GUEST_TEXT_MAX} 字）` }, { status: 400 });
   }
 
-  // 未登录访客：走免费模型，无工具、不落库、不碰回忆数据
+  // 未登录访客：走 OpenRouter 免费档，无工具、不落库、不碰回忆数据
   if (!(await isOwner())) return guestChat(body, text);
 
   const provider = resolveActiveProvider();

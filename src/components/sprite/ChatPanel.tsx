@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { freeModelName, readFreeModelChoice } from "@/lib/free-models";
+import { fetchGuestModels, readGuestModelChoice } from "@/lib/guest-models";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import MemoryListItem from "@/components/memory/MemoryListItem";
 import { usePetActor } from "@/store/pet-actor";
@@ -85,15 +85,22 @@ export default function ChatPanel() {
   // 上一次发送的文本：用于失败后「重试」
   const lastUserRef = useRef("");
 
-  // 顶栏显示当前生效的服务与模型：站长读配置，访客读本地所选的免费模型
+  // 顶栏显示当前生效的服务与模型：站长读配置，访客读实时免费档列表里的选择
   useEffect(() => {
     if (!authed) {
-      // 异步设置，避免在 effect 内同步 setState 触发级联渲染
-      const timer = window.setTimeout(
-        () => setAgentLabel(`免费模型 · ${freeModelName(readFreeModelChoice())}`),
-        0,
-      );
-      return () => window.clearTimeout(timer);
+      let alive = true;
+      void fetchGuestModels().then((data) => {
+        if (!alive) return;
+        const saved = readGuestModelChoice();
+        const chosen =
+          data.models.find((m) => m.id === saved)?.name ??
+          data.models.find((m) => m.id === data.defaultModel)?.name ??
+          data.defaultModel;
+        setAgentLabel(`免费模型 · ${chosen}`);
+      });
+      return () => {
+        alive = false;
+      };
     }
     let alive = true;
     fetch("/api/settings")
@@ -323,7 +330,7 @@ export default function ChatPanel() {
           conversationId,
           text,
           categoryId: currentCategoryId(),
-          model: authed ? undefined : readFreeModelChoice(),
+          model: authed ? undefined : (readGuestModelChoice() ?? undefined),
           history,
         }),
         signal: controller.signal,
