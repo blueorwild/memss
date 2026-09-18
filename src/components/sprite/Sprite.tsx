@@ -103,6 +103,24 @@ function clampViewport(p: Pt, safeBottom: number): Pt {
   };
 }
 
+/** 面板位置夹取到视口内（四周留 8px；视口比面板还小时也至少留在左上角可见处） */
+function clampPanel(b: Box): Box {
+  return {
+    left: Math.min(Math.max(8, b.left), Math.max(8, window.innerWidth - PANEL_W - 8)),
+    top: Math.min(Math.max(8, b.top), Math.max(8, window.innerHeight - PANEL_H - 8)),
+  };
+}
+
+/**
+ * 读取底部需要让开的高度（px）：系统底部安全区 + 窄屏详情页固定底栏。
+ * 视口尺寸变化后要重算（安全区会随横竖屏/地址栏变化）。
+ */
+function readSafeBottom(isMobile: boolean): number {
+  const base =
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom")) || 0;
+  return base + (isMobile ? 64 : 0);
+}
+
 /**
  * 把角色沿最小位移推出面板矩形（用于「面板挤开角色」）。
  * 逐个尝试四个方向（按位移从小到大），取第一个「夹取到视口内后仍不重叠」的方向；
@@ -238,20 +256,36 @@ export default function Sprite() {
       posRef.current = next;
       setPos(next);
     }, 0);
-    // 横竖屏 / 键盘顶起导致的视口高度变化：重新夹取
+    return () => window.clearTimeout(tuck);
+  }, [open, isMobile, clampAboveDrawer]);
+
+  // 视口尺寸变化（把窗口拖小 / 横竖屏切换 / 移动端地址栏收放）后重新夹取，
+  // 否则角色会留在已经变小的视口之外，整个看不见。
+  useEffect(() => {
     const onResize = () => {
       const p = posRef.current;
       if (!p) return;
-      const next = clampAboveDrawer(p);
+      const safeB = readSafeBottom(isMobile);
+      safeBottomRef.current = safeB;
+      // 面板先裁回视口内：角色避让必须按「裁完的面板」判定，否则会出现
+      // 「角色避开了旧面板位置、面板随后被裁到角色身上」的错序重叠。
+      const panelNext = panelPos ? clampPanel(panelPos) : null;
+      let next = clampViewport(p, safeB);
+      if (isMobile && open) {
+        // 窄屏抽屉打开：角色只能待在抽屉上方的可见带内
+        next = clampAboveDrawer(next);
+      } else if (open) {
+        // 宽屏面板打开：角色也不得压住面板
+        const rect = panelRect(panelNext ?? derivedPanelPos(next));
+        if (overlaps(bodyRect(next), rect)) next = pushOut(next, rect, safeB);
+      }
       posRef.current = next;
       setPos(next);
+      if (panelNext) setPanelPos(panelNext);
     };
     window.addEventListener("resize", onResize);
-    return () => {
-      window.clearTimeout(tuck);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [open, isMobile, clampAboveDrawer]);
+    return () => window.removeEventListener("resize", onResize);
+  }, [isMobile, open, panelPos, clampAboveDrawer]);
 
   // 位置初始化完成后开始 idle 生活计时；卸载时清计时并作废在途请求
   useEffect(() => {
@@ -279,10 +313,7 @@ export default function Sprite() {
       const h = window.innerHeight;
       // 读取底部安全区（刘海屏底部横条），让角色与其保持距离；
       // 窄屏再让开详情页固定底栏，避免角色压住底栏按钮
-      const safeB =
-        (parseFloat(
-          getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom"),
-        ) || 0) + (isMobile ? 64 : 0);
+      const safeB = readSafeBottom(isMobile);
       safeBottomRef.current = safeB;
       const maxY = h - MARGIN - PET_BOX_H - safeB;
       let next: Pt = { x: w - MARGIN - PET_W, y: maxY };
@@ -443,16 +474,10 @@ export default function Sprite() {
   const onPanelPointerMove = useCallback((e: PointerEvent) => {
     const d = panelDragRef.current;
     if (!d) return;
-    const next = {
-      left: Math.min(
-        Math.max(8, d.origin.left + (e.clientX - d.startX)),
-        window.innerWidth - PANEL_W - 8,
-      ),
-      top: Math.min(
-        Math.max(8, d.origin.top + (e.clientY - d.startY)),
-        window.innerHeight - PANEL_H - 8,
-      ),
-    };
+    const next = clampPanel({
+      left: d.origin.left + (e.clientX - d.startX),
+      top: d.origin.top + (e.clientY - d.startY),
+    });
     setPanelPos(next);
     // 面板可以挤开角色：被挤开的坐标只更新内存，不写 localStorage
     const p = posRef.current;
