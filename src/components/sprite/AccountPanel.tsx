@@ -147,8 +147,8 @@ export default function AccountPanel() {
   const title = authed ? "账号 · 已登录" : hasPassword ? "登录" : "设置访问口令";
 
   return (
-    // 未登录时常开：登录 / 设置口令是访客打开设置后最需要看到的东西
-    <SettingsSection title={title} locked={authed === false} defaultOpen={authed === false}>
+    // 默认收起；未登录时点开才看到登录 / 设置口令表单
+    <SettingsSection title={title}>
       {authed === null ? (
         <p className="text-xs text-white/40">读取中…</p>
       ) : authed ? (

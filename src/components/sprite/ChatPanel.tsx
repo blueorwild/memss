@@ -5,29 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { fetchGuestModels, readGuestModelChoice } from "@/lib/guest-models";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import MemoryListItem from "@/components/memory/MemoryListItem";
+import { useChatSession, type ChatMode, type MemoryCardItem, type Msg } from "@/store/chat-session";
 import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
 import { useAuthed } from "./AuthContext";
 import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
-
-/** 检索结果中的记忆条目（含封面与地点，卡片与搜索面板共用渲染） */
-type MemoryCardItem = {
-  id: string;
-  title: string;
-  date: string | null;
-  location?: string | null;
-  cover?: { path: string; focalX: number; focalY: number; cropScale: number } | null;
-};
-
-type Msg = {
-  role: "user" | "assistant";
-  content: string;
-  /** 本条助手消息对应的检索卡片（由后端决定，最多 3 条） */
-  cards?: MemoryCardItem[];
-  /** 卡片对应的结果总数 */
-  cardsTotal?: number;
-};
 
 /** 服务端 SSE 事件 */
 type AgentEvent =
@@ -61,29 +44,46 @@ const STORAGE_KEY = "sprite:conversationId";
 /** 访客提到这些词就把他带到设置里的「账号」（免费模型不保证支持工具调用，故在客户端兜一层） */
 const LOGIN_HINTS = ["登录", "登陆", "账号", "帐号", "sign in", "signin", "我的回忆"];
 
-/** 对话面板：后端为会话真相源，前端只渲染；历史面板可管理多会话 */
+/** 对话面板：站长以数据库为会话真相源，访客不落库；两者的聊天状态都暂存在 chat-session store 里，
+ *  因此切换视图 / 关闭面板再回来时，在途的流式回复与草稿都不会丢。 */
 export default function ChatPanel() {
   const router = useRouter();
   const pathname = usePathname();
   const authed = useAuthed();
+  const mode: ChatMode = authed ? "owner" : "guest";
   const welcome = authed ? WELCOME : GUEST_WELCOME;
 
+  // 聊天状态（跨视图存活，见 store/chat-session.ts）
+  const messages = useChatSession((s) => s.messages);
+  const streaming = useChatSession((s) => s.streaming);
+  const toolStatus = useChatSession((s) => s.toolStatus);
+  const error = useChatSession((s) => s.error);
+  const input = useChatSession((s) => s.input);
+  const conversationId = useChatSession((s) => s.conversationId);
+
+  // store 写入函数（稳定引用，保持各处调用点写法不变）
+  const setMessages = useCallback(
+    (updater: Msg[] | ((prev: Msg[]) => Msg[])) =>
+      useChatSession.getState().setMessages(updater),
+    [],
+  );
+  const setStreaming = useCallback(
+    (v: boolean) => useChatSession.getState().patch({ streaming: v }),
+    [],
+  );
+  const setToolStatus = useCallback(
+    (v: string | null) => useChatSession.getState().patch({ toolStatus: v }),
+    [],
+  );
+  const setError = useCallback((v: string | null) => useChatSession.getState().patch({ error: v }), []);
+  const setInput = useCallback((v: string) => useChatSession.getState().patch({ input: v }), []);
+
   const [view, setView] = useState<"chat" | "history">("chat");
-  const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: welcome }]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
-  const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [toolStatus, setToolStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [agentLabel, setAgentLabel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 中止控制器：用于「停止」按钮
-  const abortRef = useRef<AbortController | null>(null);
   // 本次请求的角色动作 id（小精灵思考/顿悟状态机用；卸载或关闭后旧 id 自动失效）
   const petReqRef = useRef(0);
-  // 上一次发送的文本：用于失败后「重试」
-  const lastUserRef = useRef("");
 
   // 顶栏显示当前生效的服务与模型：站长读配置，访客读实时免费档列表里的选择
   useEffect(() => {
@@ -119,9 +119,9 @@ export default function ChatPanel() {
     };
   }, [authed]);
 
-  /** 记住当前会话 id（同时写入 localStorage，刷新后恢复） */
+  /** 记住当前会话 id（store + localStorage，刷新后恢复；访客不会调用） */
   const rememberConversation = useCallback((id: string | null) => {
-    setConversationId(id);
+    useChatSession.getState().patch({ conversationId: id });
     if (id) localStorage.setItem(STORAGE_KEY, id);
     else localStorage.removeItem(STORAGE_KEY);
   }, []);
@@ -154,17 +154,26 @@ export default function ChatPanel() {
         // 网络异常时保持当前界面
       }
     },
-    [rememberConversation],
+    [rememberConversation, setMessages],
   );
 
-  // 首次挂载：站长恢复上次的会话（访客对话不落库，刷新即空）
+  // 身份（站长 / 访客）变化时复位 store；同一身份内重新挂载（切视图 / 关面板）保留原内容。
+  // 注意：这里**不再**在每次挂载时重拉历史——那会把正在流式生成的回复冲掉。
   useEffect(() => {
-    if (!authed) return;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return;
-    const timer = setTimeout(() => void loadConversation(saved), 0);
-    return () => clearTimeout(timer);
-  }, [authed, loadConversation]);
+    const state = useChatSession.getState();
+    if (state.mode === mode) return;
+    state.begin(mode, welcome);
+    if (mode === "owner") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) void loadConversation(saved);
+    }
+  }, [mode, welcome, loadConversation]);
+
+  // 切视图期间离开的请求可能还在流式生成：回到对话时让角色重新进入「思考」姿态
+  useEffect(() => {
+    if (!useChatSession.getState().streaming) return;
+    petReqRef.current = usePetActor.getState().notifyRequestStart();
+  }, []);
 
   // 消息或工具状态更新后自动滚到底部
   useEffect(() => {
@@ -276,12 +285,12 @@ export default function ChatPanel() {
 
   /** 停止生成 */
   function stop() {
-    abortRef.current?.abort();
+    useChatSession.getState().controller?.abort();
   }
 
   /** 重试上一次失败/中止的输入（用户气泡已存在，故不重复追加） */
   function retry() {
-    const text = lastUserRef.current;
+    const text = useChatSession.getState().lastUser;
     if (!text || streaming) return;
     setError(null);
     setMessages((m) => {
@@ -295,8 +304,9 @@ export default function ChatPanel() {
 
   /** 发送文本并流式渲染；appendUser=false 用于重试 */
   async function sendText(text: string, appendUser: boolean) {
-    if (streaming) return;
-    lastUserRef.current = text;
+    if (useChatSession.getState().streaming) return;
+    const patch = useChatSession.getState().patch;
+    patch({ lastUser: text });
     // 访客：不带会话 id，改为把最近的上下文随请求带上（后端不落库）
     const history = authed
       ? undefined
@@ -306,17 +316,16 @@ export default function ChatPanel() {
           .map((m) => ({ role: m.role, content: m.content }));
     const wantsLogin =
       !authed && LOGIN_HINTS.some((h) => text.toLowerCase().includes(h.toLowerCase()));
-    setError(null);
-    setToolStatus(null);
+    patch({ error: null, toolStatus: null });
     setMessages((m) =>
       appendUser
         ? [...m, { role: "user", content: text }, { role: "assistant", content: "" }]
         : [...m, { role: "assistant", content: "" }],
     );
-    setStreaming(true);
+    patch({ streaming: true });
 
     const controller = new AbortController();
-    abortRef.current = controller;
+    patch({ controller });
     let aborted = false;
     // 小精灵：进入思考；首个有效正文增量才顿悟，失败/停止不顿悟
     const petReq = usePetActor.getState().notifyRequestStart();
@@ -369,7 +378,7 @@ export default function ChatPanel() {
       if (controller.signal.aborted) aborted = true;
       else setError(err instanceof Error ? err.message : "请求失败");
     } finally {
-      abortRef.current = null;
+      patch({ controller: null });
       usePetActor.getState().notifyRequestEnd(petReq);
       setStreaming(false);
       setToolStatus(null);

@@ -633,3 +633,40 @@ Zen 的付费档则返回 `401 CreditsError: Insufficient balance`（工作区�
 ### 注意
 - 免费档上游不稳（探测时 qwen / gemma 直接 429），靠 `models` 兜底 + 访客可切换缓解；列表随时可能被官方轮换，代码无需改动。
 - 免费档可能记录/训练数据（用户已确认接受），设置与「关于」里都有提示。
+
+## 26. 聊天会话暂存内存：切视图 / 关面板不再丢（已完成）
+
+### 问题
+小精灵面板切视图（对话 / 搜索 / 上传 / 设置）时 `ChatPanel` 会被卸载，而聊天状态原本都在组件内部：
+
+- **访客**：切到设置再回来，整段对话清空（连欢迎语之外全没了）。
+- **站长**：发送后回复还没到就切走，回来「没有回复了」。根因比"不显示"更麻烦：
+  `conversationId` 由服务端首个 `meta` 事件回填再写 localStorage，**新会话首条消息若在 `meta` 到达前切走，这个 id 就永久丢了**——
+  服务端其实把回复写进了数据库，但客户端把指针丢了，之后连刷新都找不回来。
+
+### 改法：`src/store/chat-session.ts`（zustand，纯内存，站长与访客共用）
+```
+mode / messages / streaming / toolStatus / error / input / lastUser / controller / conversationId
+begin(mode, welcome) / reset / setMessages / patch
+```
+- `ChatPanel` 的 `messages / streaming / toolStatus / error / input / lastUser / abortController / conversationId` 全部改为读写 store；
+  局部只留 `view / conversations / agentLabel / scrollRef / petReqRef`。6 处 `setMessages(...)` 调用点写法不变（包一层稳定引用）。
+- 于是：**流式回复继续写进 store**（异步循环即使在卸载后也能追加）；`meta` 回填的 `conversationId` 不再因卸载而丢；
+  输入框草稿、`lastUser`（重试）、`controller`（停止）都跨视图存活；面板 ✕ 关掉再开也还在。切回对话时若仍在 streaming，会让角色重新进入思考姿态。
+- **不再**在每次挂载时重拉历史（那会把正在生成的回复冲掉）；只在 `mode` 变化（登录/登出）时 `begin()` 复位，
+  然后站长按 localStorage 里的 id 载入数据库历史。**mode 复位是隐私底线**：登出后访客看不到站长的聊天记录。
+- 访客仍是纯内存：刷新页面即清空（不落库、不进 localStorage）。
+
+### 设置默认收起
+- 「登录 / 设置访问口令」与「免费模型」两块改为**默认收起**、可点开；`SettingsSection` 里专为"常开"服务的 `locked` prop 已删除。
+- ⚠️ 副作用（用户确认接受）：首次使用（库里没口令）时也要自己点开「设置访问口令」。
+
+### 验证
+- 访客（真实 3000，不写库）`/tmp/chat-session-verify.mjs` **9/9**：两块默认收起且可展开；发一条拿到模型回复；
+  切设置再切回**记录仍在**；**草稿跨视图保留**；**流式中途切走 12s 再回来回复完整**、无「…」占位；刷新只剩欢迎语。
+- 站长（临时副本 + 独立 DB 的 3101）`/tmp/chat-owner-verify.mjs` **12/12**：回复到达前切走→切回可见；
+  **新会话 conversationId 不再丢（null → 有效 id）**；**刷新后该会话（含回复）仍能恢复**；面板 ✕ 关掉再开记录与草稿都在；
+  登出后对话清空为访客欢迎语（不串记录）；重新登录恢复站长会话。
+- 站长侧 `flow-behavior` 20/20（连跑三次，其中一次窄屏纵向拖动跟手偶发 FAIL Δ=-0.2，属已知**测试脚本**抖动：
+  窄屏拖动目标偶被小精灵压住；已两次复跑 20/20、且本次改动不涉及星空页）。
+- `tsc` / `eslint` / `next build` 全绿。

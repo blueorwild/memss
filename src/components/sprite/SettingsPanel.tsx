@@ -446,7 +446,7 @@ function FreeModelSection() {
   const current = models.find((m) => m.id === choice);
 
   return (
-    <SettingsSection title="免费模型" defaultOpen>
+    <SettingsSection title="免费模型">
       <p className="text-xs text-white/45">
         挑一个陪你聊天的模型（由站长统一提供，无需填写密钥）。
       </p>
