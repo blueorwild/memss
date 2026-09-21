@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { motion } from "framer-motion";
+import { useElementSize } from "@/lib/use-element-size";
 import type { MemoryCard } from "@/lib/db/queries";
 
 const CX = 500;
@@ -49,6 +50,10 @@ const TimelineRail = memo(function TimelineRail({
   /** 矮容器（手机横屏）：压缩星轨高度，给卡片让位 */
   compact?: boolean;
 }) {
+  // 光标用 transform 定位（旧版动画 left/top %，每帧都要重新布局）；
+  // 百分比换算成像素需要容器尺寸，所以 hook 必须在下面的提前 return 之前调用
+  const [railRef, railSize] = useElementSize<HTMLDivElement>();
+
   const months = memories
     .map((m) => monthIndex(m.date))
     .filter((v): v is number => v !== null);
@@ -75,6 +80,7 @@ const TimelineRail = memo(function TimelineRail({
 
   return (
     <div
+      ref={railRef}
       className={`pointer-events-none absolute inset-x-0 bottom-0 w-full ${
         compact ? "h-[64px]" : "h-[140px]"
       }`}
@@ -91,13 +97,21 @@ const TimelineRail = memo(function TimelineRail({
             <stop offset="100%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
           </linearGradient>
         </defs>
+        {/* 辉光：用一条更粗更淡的同路径代替 drop-shadow 滤镜（SVG 滤镜每帧都要重新栅格化） */}
+        <polyline
+          points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#railGrad)"
+          strokeWidth="5"
+          strokeOpacity="0.22"
+          vectorEffect="non-scaling-stroke"
+        />
         <polyline
           points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
           fill="none"
           stroke="url(#railGrad)"
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
-          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgb(var(--sky-beam) / 0.55))" }}
         />
       </svg>
 
@@ -116,16 +130,15 @@ const TimelineRail = memo(function TimelineRail({
         </span>
       ))}
 
-      {cursor && (
+      {cursor && railSize.w > 0 && (
         <motion.div
-          className="absolute"
+          className="absolute left-0 top-0"
           initial={false}
           animate={{
-            left: `${r3((cursor.x / 1000) * 100)}%`,
-            top: `${r3((cursor.y / 260) * 100)}%`,
+            x: (cursor.x / 1000) * railSize.w,
+            y: (cursor.y / 260) * railSize.h,
           }}
           transition={{ type: "spring", stiffness: 110, damping: 22 }}
-          style={{ x: "-50%", y: "-50%" }}
         >
           <div
             className="absolute left-0 top-0 rounded-full"
@@ -135,7 +148,6 @@ const TimelineRail = memo(function TimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "radial-gradient(circle, rgb(var(--warm-glow) / 0.3) 0%, rgb(var(--warm-glow) / 0) 70%)",
-              filter: "blur(6px)",
             }}
           />
           <div
@@ -146,7 +158,6 @@ const TimelineRail = memo(function TimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "linear-gradient(to bottom, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
-              filter: "blur(1px)",
               boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
@@ -158,7 +169,6 @@ const TimelineRail = memo(function TimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "linear-gradient(to right, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
-              filter: "blur(1px)",
               boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
@@ -192,6 +202,10 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
   activeId?: string | null;
   showCursor?: boolean;
 }) {
+  // 光标用 transform 定位（旧版动画 left/top %，每帧都要重新布局）；
+  // 百分比换算成像素需要容器尺寸，所以 hook 必须在下面的提前 return 之前调用
+  const [railRef, railSize] = useElementSize<HTMLDivElement>();
+
   const months = memories
     .map((m) => monthIndex(m.date))
     .filter((v): v is number => v !== null);
@@ -223,7 +237,7 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
   const cursorT = activeMi !== null ? toT(activeMi) : null;
 
   return (
-    <div className="pointer-events-none absolute bottom-0 left-0 top-0 w-14">
+    <div ref={railRef} className="pointer-events-none absolute bottom-0 left-0 top-0 w-14">
       <svg
         viewBox="0 0 56 1000"
         preserveAspectRatio="none"
@@ -236,13 +250,21 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
             <stop offset="100%" style={{ stopColor: "rgb(var(--sky-beam) / 0)" }} />
           </linearGradient>
         </defs>
+        {/* 辉光：同路径再画一条更粗更淡的（替代 drop-shadow 滤镜） */}
+        <polyline
+          points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
+          fill="none"
+          stroke="url(#vRailGrad)"
+          strokeWidth="5"
+          strokeOpacity="0.22"
+          vectorEffect="non-scaling-stroke"
+        />
         <polyline
           points={arc.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}
           fill="none"
           stroke="url(#vRailGrad)"
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
-          style={{ filter: "blur(0.4px) drop-shadow(0 0 6px rgb(var(--sky-beam) / 0.55))" }}
         />
       </svg>
 
@@ -262,13 +284,15 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
         </span>
       ))}
 
-      {cursorT !== null && (
+      {cursorT !== null && railSize.h > 0 && (
         <motion.div
-          className="absolute"
+          className="absolute left-0 top-0"
           initial={false}
-          animate={{ left: `${arcXPercent(cursorT)}%`, top: `${r3(cursorT * 100)}%` }}
+          animate={{
+            x: (arcXPercent(cursorT) / 100) * railSize.w,
+            y: cursorT * railSize.h,
+          }}
           transition={{ type: "spring", stiffness: 110, damping: 22 }}
-          style={{ x: "-50%", y: "-50%" }}
         >
           <div
             className="absolute left-0 top-0 rounded-full"
@@ -278,7 +302,6 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "radial-gradient(circle, rgb(var(--warm-glow) / 0.3) 0%, rgb(var(--warm-glow) / 0) 70%)",
-              filter: "blur(6px)",
             }}
           />
           {/* 竖短 */}
@@ -290,7 +313,6 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "linear-gradient(to bottom, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
-              filter: "blur(1px)",
               boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />
@@ -303,7 +325,6 @@ export const VerticalTimelineRail = memo(function VerticalTimelineRail({
               transform: "translate(-50%, -50%)",
               background:
                 "linear-gradient(to right, rgb(var(--warm) / 0.15), rgb(var(--warm) / 1), rgb(var(--warm) / 0.15))",
-              filter: "blur(1px)",
               boxShadow: "0 0 8px rgb(var(--warm-glow) / 0.9), 0 0 18px rgb(var(--warm-glow) / 0.5)",
             }}
           />

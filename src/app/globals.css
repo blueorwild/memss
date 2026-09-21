@@ -73,10 +73,15 @@ body {
   overscroll-behavior-y: none;
 }
 
+/*
+ * 整屏过渡：收小模糊半径（曾经 14/16/12px）。
+ * 与 opacity 淡入同时进行，半径数值在几乎透明的前几帧里人眼分辨不出，
+ * 而整屏 `filter: blur()` 每帧都要重新栅格化整个子树，是导航时最重的一笔。
+ */
 @keyframes sceneIn {
   from {
     opacity: 0;
-    filter: blur(14px);
+    filter: blur(5px);
   }
   to {
     opacity: 1;
@@ -87,7 +92,7 @@ body {
 @keyframes memoryIn {
   from {
     opacity: 0;
-    filter: blur(16px);
+    filter: blur(6px);
     transform: scale(1.04);
   }
   to {
@@ -105,7 +110,127 @@ body {
   }
   to {
     opacity: 0;
-    filter: blur(12px);
+    filter: blur(6px);
     transform: scale(1.03);
   }
+}
+
+/*
+ * 环境动画一律用 CSS 关键帧（合成器驱动）而不是逐帧写内联样式：
+ * 旧的 framer-motion 版本在星图页最多同时跑 240+ 个 JS 动画，
+ * 实测主线程 2.48ms/帧、样式重算 1019ms/25s；换成 CSS 后主线程不再参与。
+ * 参数（位移/时长/相位）由调用方通过 CSS 变量给，随机种子与旧实现一致。
+ */
+@keyframes starParticle {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: translate3d(calc(var(--pdx) * 0.5), calc(var(--pdy) * 0.5), 0) scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(var(--pdx), var(--pdy), 0) scale(0.3);
+    opacity: 0;
+  }
+}
+
+@keyframes starPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+}
+
+/** 星星周围的呼吸粒子：`--pdx/--pdy/--pdur/--pdelay` 由 JSX 给 */
+.ambient-particle {
+  animation: starParticle var(--pdur, 3s) ease-out var(--pdelay, 0s) infinite;
+}
+
+/** 有回忆的星点呼吸：2.4s 与旧实现一致 */
+.ambient-pulse {
+  animation: starPulse 2.4s ease-in-out infinite;
+}
+
+/** 回忆卡片缓缓浮动：`--fx/--fy/--fdur/--fdelay` 由 JSX 给（5 段关键帧） */
+@keyframes tileFloat {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(calc(var(--fx) * 0.7), calc(var(--fy) * -1), 0);
+  }
+  50% {
+    transform: translate3d(0, 0, 0);
+  }
+  75% {
+    transform: translate3d(calc(var(--fx) * -0.7), var(--fy), 0);
+  }
+}
+
+.ambient-float {
+  animation: tileFloat var(--fdur, 9s) ease-in-out var(--fdelay, 0s) infinite;
+}
+
+/** 回忆页播放按钮的呼吸（暂停时不给这个类，动画即停） */
+@keyframes playPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.75;
+  }
+}
+
+@keyframes playPulseIdle {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.9;
+  }
+}
+
+.ambient-play {
+  animation: playPulse 3s ease-in-out infinite;
+}
+
+.ambient-play-idle {
+  animation: playPulseIdle 1.8s ease-in-out infinite;
+}
+
+/** reduced-motion：所有环境动画直接停掉（覆盖上面几个类） */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-particle,
+  .ambient-pulse,
+  .ambient-float,
+  .ambient-play,
+  .ambient-play-idle {
+    animation: none !important;
+  }
+}
+
+/*
+ * 环境暂停（小精灵面板打开 / 切后台 / 窗口失焦）：冻结而不是移除，
+ * 恢复时动画从原处继续，不会跳变。canvas 由 JS 自己判断（见 ambient-pause.ts）。
+ */
+html[data-ambient="paused"] .ambient-particle,
+html[data-ambient="paused"] .ambient-pulse,
+html[data-ambient="paused"] .ambient-float,
+html[data-ambient="paused"] .ambient-play,
+html[data-ambient="paused"] .ambient-play-idle {
+  animation-play-state: paused !important;
 }

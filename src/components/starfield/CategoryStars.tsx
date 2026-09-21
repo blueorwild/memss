@@ -177,6 +177,7 @@ const StarNode = memo(function StarNode({
   topValue,
   rot,
   isZoomed,
+  ambient,
   onSelect,
   justDragged,
   dataId,
@@ -189,6 +190,8 @@ const StarNode = memo(function StarNode({
   topValue: string | number;
   rot: number;
   isZoomed: boolean;
+  /** 是否播环境动画（粒子 / 星点呼吸）；reduced-motion 时为 false */
+  ambient: boolean;
   onSelect: (id: string, e: React.MouseEvent) => void;
   justDragged: () => boolean;
   dataId?: string;
@@ -213,25 +216,24 @@ const StarNode = memo(function StarNode({
       className={flow ? "absolute will-change-transform" : "absolute"}
       style={style}
     >
-      {/* 可点星星的白色呼吸粒子（不拦截点击） */}
-      {hasMemories && (
+      {/* 可点星星的白色呼吸粒子（不拦截点击）：纯 CSS 关键帧，主线程不参与 */}
+      {hasMemories && ambient && (
         <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
           {STAR_PARTICLES.map((p, i) => (
-            <motion.span
+            <span
               key={i}
-              className="absolute rounded-full bg-white"
-              style={{
-                width: p.size,
-                height: p.size,
-                boxShadow: "0 0 5px 1.5px rgb(var(--sky-star) / 0.85)",
-              }}
-              animate={{
-                x: [0, p.dx],
-                y: [0, p.dy],
-                opacity: [0, 0.9, 0],
-                scale: [0.5, 1, 0.3],
-              }}
-              transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
+              className="ambient-particle absolute rounded-full bg-white"
+              style={
+                {
+                  width: p.size,
+                  height: p.size,
+                  boxShadow: "0 0 5px 1.5px rgb(var(--sky-star) / 0.85)",
+                  "--pdx": `${p.dx}px`,
+                  "--pdy": `${p.dy}px`,
+                  "--pdur": `${p.dur}s`,
+                  "--pdelay": `${p.delay}s`,
+                } as CSSProperties
+              }
             />
           ))}
         </div>
@@ -248,14 +250,14 @@ const StarNode = memo(function StarNode({
         animate={{ opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }}
         transition={{ duration: isZoomed ? 0.1 : 0.3 }}
       >
-        <motion.span
+        <span
           className={
             hasMemories
-              ? "block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]"
+              ? `block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]${
+                  ambient ? " ambient-pulse" : ""
+                }`
               : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
           }
-          animate={hasMemories ? { scale: [1, 1.35, 1], opacity: [0.85, 1, 0.85] } : {}}
-          transition={hasMemories ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}}
         />
         <span
           className={
@@ -302,6 +304,7 @@ export default function CategoryStars({
   const slot = size.w / Math.max(1, cap);
 
   const {
+    reduceMotion,
     containerRef: flowRef,
     offsetRef: flowOffsetRef,
     ready: flowReady,
@@ -311,6 +314,9 @@ export default function CategoryStars({
     endDrag: flowEndDrag,
     justDragged,
   } = useTrackFlow({ mainLen: size.w });
+
+  /** 环境动画（粒子 / 星点呼吸）总开关：reduced-motion 下不播 */
+  const ambient = !reduceMotion;
 
   // 静态散布位置：随机散布形态（≤ 同屏容量）下算一次即可
   const scatterNodes = useMemo(() => {
@@ -414,6 +420,7 @@ export default function CategoryStars({
                 topValue={it.cross}
                 rot={it.rot}
                 isZoomed={zoomedId === it.c.id}
+                ambient={ambient}
                 onSelect={onSelect}
                 justDragged={justDragged}
                 dataId={id}
@@ -430,6 +437,7 @@ export default function CategoryStars({
               topValue={top}
               rot={0}
               isZoomed={zoomedId === c.id}
+              ambient={ambient}
               onSelect={onSelect}
               justDragged={justDragged}
             />

@@ -3,7 +3,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import Breadcrumb from "@/components/starfield/Breadcrumb";
 import { useAuthed } from "@/components/sprite/AuthContext";
 import BackButton from "@/components/ui/back-button";
@@ -48,18 +47,17 @@ function PlayButton({
           : "border-white/25 bg-white/10 hover:bg-white/20"
       }`}
     >
-      <motion.span
-        className="pointer-events-none absolute inset-0 rounded-full"
+      {/* 呼吸光晕：纯 CSS 关键帧（合成器驱动）。display:none 的那一份实例不会跑动画，
+          宿主环境暂停时也会一起冻结，与旧实现相比省掉两个常驻 JS 动画 */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 rounded-full ${
+          playing ? "ambient-play" : "ambient-play-idle"
+        }`}
         style={{
           background:
             "radial-gradient(circle, rgb(var(--sky-star) / 0.45) 0%, rgb(var(--accent) / 0) 70%)",
         }}
-        animate={
-          playing
-            ? { scale: [1, 1.15, 1], opacity: [0.45, 0.75, 0.45] }
-            : { scale: [1, 1.4, 1], opacity: [0.35, 0.9, 0.35] }
-        }
-        transition={{ duration: playing ? 3 : 1.8, repeat: Infinity, ease: "easeInOut" }}
       />
       <span aria-hidden className="relative">
         {playing ? "❚❚" : "▶"}

@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import PetArt, { CHAR, FRAME } from "@/components/xiaoriyue-drag/PetArt";
+import { startAmbientPauseWatch } from "@/lib/ambient-pause";
 import { hashSeed, mulberry32 } from "@/lib/layout-seed";
 import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { usePetActor } from "@/store/pet-actor";
@@ -302,6 +303,9 @@ export default function Sprite({ authed }: { authed: boolean }) {
     };
   }, []);
 
+  // 环境动画暂停总闸（面板打开 / 切后台 / 窗口失焦）：只需挂一次，Sprite 全局常驻
+  useEffect(() => startAmbientPauseWatch(), []);
+
   // 面板消失即「关闭」语义（✕ / 遮罩 / 表单完成 / 搜索跳转统一处理）
   useEffect(
     () =>
@@ -582,25 +586,35 @@ export default function Sprite({ authed }: { authed: boolean }) {
         />
       ))}
 
-      {/* 常驻粒子（更细碎、青蓝、发光） */}
+      {/* 常驻粒子（更细碎、青蓝、发光）：纯 CSS 关键帧，主线程不参与；
+          外层只负责定位/居中，内层跑动画（CSS 动画会整体覆盖 transform，不能同层） */}
       {pos &&
         particles.map((p, i) => (
-          <motion.span
+          <span
             key={i}
-            className="pointer-events-none fixed z-[59] rounded-full"
+            className="pointer-events-none fixed z-[59] block"
             style={{
               left: pos.x + CORE.dx,
               top: pos.y + CORE.dy,
               width: p.size,
               height: p.size,
-              translateX: "-50%",
-              translateY: "-50%",
-              background: SPARK,
-              boxShadow: `0 0 5px 1.5px rgb(var(--accent) / 0.9)`,
+              transform: "translate(-50%, -50%)",
             }}
-            animate={{ x: [0, p.dx], y: [0, p.dy], opacity: [0, 0.95, 0], scale: [0.5, 1, 0.3] }}
-            transition={{ duration: p.dur, repeat: Infinity, delay: p.delay, ease: "easeOut" }}
-          />
+          >
+            <span
+              className="ambient-particle block h-full w-full rounded-full"
+              style={
+                {
+                  background: SPARK,
+                  boxShadow: `0 0 5px 1.5px rgb(var(--accent) / 0.9)`,
+                  "--pdx": `${p.dx}px`,
+                  "--pdy": `${p.dy}px`,
+                  "--pdur": `${p.dur}s`,
+                  "--pdelay": `${p.delay}s`,
+                } as CSSProperties
+              }
+            />
+          </span>
         ))}
 
       {/* 展开面板：窄屏为底部抽屉（含遮罩），宽屏为角色旁的浮动面板 */}
@@ -613,7 +627,7 @@ export default function Sprite({ authed }: { authed: boolean }) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
-            className="fixed inset-0 z-[65] bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[65] bg-black/50"
           />
         )}
         {open && (
@@ -626,8 +640,8 @@ export default function Sprite({ authed }: { authed: boolean }) {
             style={isMobile ? undefined : panelStyle}
             className={
               isMobile
-                ? "fixed inset-x-0 bottom-0 z-[70] flex h-[min(78dvh,560px)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-panel/95 pb-[var(--safe-bottom)] text-white shadow-2xl backdrop-blur-xl"
-                : `fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-panel/95 text-white shadow-2xl backdrop-blur-xl ${
+                ? "fixed inset-x-0 bottom-0 z-[70] flex h-[min(78dvh,560px)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-panel/95 pb-[var(--safe-bottom)] text-white shadow-2xl"
+                : `fixed z-[60] flex h-[460px] w-[360px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-panel/95 text-white shadow-2xl ${
                     panelStyle ? "" : "bottom-24 right-6"
                   }`
             }

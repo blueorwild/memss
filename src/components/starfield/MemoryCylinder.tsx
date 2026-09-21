@@ -1,9 +1,17 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import {
   PER_TRACK_MAX,
   RAIL_CROSS,
@@ -261,46 +269,47 @@ function TileBoard({
         const along = Math.min(mainLen - pad * 0.4, Math.max(pad * 0.4, alongRaw));
         const cross = crossOf(track) + j.cross * zoneLen;
         return (
-          <motion.div
+          <div
             key={m.id}
             className="absolute"
             style={{
               left: vertical ? cross : along,
               top: vertical ? along : cross,
-              translateX: "-50%",
-              translateY: "-50%",
+              transform: "translate(-50%, -50%)",
             }}
-            animate={
-              reduceMotion
-                ? undefined
-                : {
-                    x: [0, j.floatAmp * 0.7, 0, -j.floatAmp * 0.7, 0],
-                    y: [0, -j.floatAmp, 0, j.floatAmp, 0],
-                  }
-            }
-            transition={
-              reduceMotion
-                ? undefined
-                : { duration: j.floatDur, repeat: Infinity, ease: "easeInOut" }
-            }
           >
-            <div style={{ transform: `rotate(${j.rotate}deg) scale(${j.scale})` }}>
-              <button
-                type="button"
-                onClick={() => router.push(`/memory/${m.id}`)}
-                className="block cursor-pointer outline-none"
-              >
-                <MemoryCardFace memory={m} tier={tier} />
-                {tier !== "tiny" && (
-                  <p
-                    className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
-                  >
-                    {m.title}
-                  </p>
-                )}
-              </button>
+            {/* 缓缓浮动：纯 CSS 关键帧（合成器驱动），reduced-motion 下不给这个类。
+                单独一层是因为 CSS 动画会整体覆盖 transform，不能和定位/旋转同层 */}
+            <div
+              className={reduceMotion ? undefined : "ambient-float"}
+              style={
+                reduceMotion
+                  ? undefined
+                  : ({
+                      "--fx": `${j.floatAmp}px`,
+                      "--fy": `${j.floatAmp}px`,
+                      "--fdur": `${j.floatDur}s`,
+                    } as CSSProperties)
+              }
+            >
+              <div style={{ transform: `rotate(${j.rotate}deg) scale(${j.scale})` }}>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/memory/${m.id}`)}
+                  className="block cursor-pointer outline-none"
+                >
+                  <MemoryCardFace memory={m} tier={tier} />
+                  {tier !== "tiny" && (
+                    <p
+                      className={`mt-2 truncate text-center text-xs text-white/70 ${CAPTION_CLS[tier]}`}
+                    >
+                      {m.title}
+                    </p>
+                  )}
+                </button>
+              </div>
             </div>
-          </motion.div>
+          </div>
         );
       })}
 

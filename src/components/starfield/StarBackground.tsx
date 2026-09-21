@@ -30,8 +30,15 @@ type Meteor = {
   tail: RGB;
 };
 
-/** 降载口径：宽窄屏统一（canvas 像素数是最大开销，宽屏也按 1.5 倍封顶） */
-const MAX_DPR = 1.5;
+/** 降载口径：宽窄屏统一（canvas 像素数是最大开销，宽屏也按 1.25 倍封顶） */
+const MAX_DPR = 1.25;
+/** 星点亮度查表级数：避免每帧给每颗星拼一个 rgba() 字符串（约 6600 次/秒的垃圾） */
+const ALPHA_LEVELS = 64;
+/** 视差平滑的时间常数（秒）：与旧的「每帧 ×0.05」手感一致，但改为按 dt 计算，
+ *  这样常态降到 20fps 后视差速度不会跟着变慢 */
+const PARALLAX_TAU = 1;
+/** 常态帧率：每 3 帧画一次（20fps，闪烁周期 2.2s，看不出差别）；有流星时逐帧 */
+const IDLE_FRAME_DIVISOR = 3;
 /** 星数上限 */
 const STAR_CAP = 220;
 const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
@@ -73,6 +80,10 @@ export default function StarBackground() {
     // 星点颜色取自主题 token（canvas 拿不到 CSS 类）
     const theme = readTheme();
     const starColor = theme.star;
+    /** 亮度查表（0..1 → rgba 字符串）：逐帧取用，不再分配新字符串 */
+    const alphaTable = Array.from({ length: ALPHA_LEVELS + 1 }, (_, i) =>
+      rgba(starColor, i / ALPHA_LEVELS),
+    );
 
     let w = 0;
     let h = 0;
@@ -196,19 +207,21 @@ export default function StarBackground() {
       ctx!.globalCompositeOperation = "source-over";
     }
 
-    /** 绘制一帧（t 为时间，用于闪烁相位） */
-    function render(t: number) {
+    /** 绘制一帧（t 为时间，用于闪烁相位；dt 用于按时间平滑视差） */
+    function render(t: number, dt: number) {
       ctx!.clearRect(0, 0, w, h);
-      mx += (tx - mx) * 0.05;
-      my += (ty - my) * 0.05;
+      // 视差平滑按 dt 计算：与帧率无关，降到 20fps 后手感不变
+      const k = dt > 0 ? 1 - Math.exp(-dt / PARALLAX_TAU) : 0;
+      mx += (tx - mx) * k;
+      my += (ty - my) * k;
       for (const s of stars) {
         const px = s.x + mx * s.z * 18;
         const py = s.y + my * s.z * 18;
         // reduced-motion 下用固定亮度，去掉闪烁
-        const alpha = reduceMotion ? 0.7 : 0.35 + 0.65 * Math.abs(Math.sin(t / 1400 + s.tw));
+        const a = reduceMotion ? 0.7 : 0.35 + 0.65 * Math.abs(Math.sin(t / 1400 + s.tw));
         ctx!.beginPath();
         ctx!.arc(px, py, s.r * s.z, 0, Math.PI * 2);
-        ctx!.fillStyle = rgba(starColor, alpha * s.z);
+        ctx!.fillStyle = alphaTable[Math.min(ALPHA_LEVELS, (a * s.z * ALPHA_LEVELS) | 0)];
         ctx!.fill();
       }
       for (const m of meteors) drawMeteor(m);
@@ -220,15 +233,17 @@ export default function StarBackground() {
       raf = requestAnimationFrame(draw);
       const dt = prevT ? Math.min((t - prevT) / 1000, MAX_STEP) : 0;
       prevT = t;
-      // 后台标签页不绘制
+      // 以下情况不绘制（连 rAF 里的计算都省掉）：
+      // 后台标签页 / 场景过渡 / 窗口失焦（切到别的应用时不再白烧 CPU/GPU）。
+      // 面板打开时**照常绘制**：面板是角落浮层，星空仍在视野里，冻住会像张静图。
       if (document.hidden) return;
-      // 场景过渡期间暂停，减轻合成压力
       if (useSpriteStore.getState().sceneTransitioning) return;
-      // 常态下每 2 帧绘制一次；有流星时逐帧（快速尾迹在 30fps 下会一顿一顿）
+      if (!document.hasFocus()) return;
       frame += 1;
-      if (meteors.length === 0 && frame % 2 !== 0) return;
+      // 常态下每 3 帧绘制一次（20fps）；有流星时逐帧（快速尾迹在 20fps 下会一顿一顿）
+      if (meteors.length === 0 && frame % IDLE_FRAME_DIVISOR !== 0) return;
       updateMeteors(dt, t);
-      render(t);
+      render(t, dt);
     }
 
     const onMove = (e: MouseEvent) => {
@@ -240,10 +255,10 @@ export default function StarBackground() {
     if (reduceMotion) {
       const onResizeStatic = () => {
         resize();
-        render(0);
+        render(0, 0);
       };
       resize();
-      render(0);
+      render(0, 0);
       window.addEventListener("resize", onResizeStatic);
       return () => window.removeEventListener("resize", onResizeStatic);
     }

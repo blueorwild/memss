@@ -953,3 +953,13 @@
     opacity: 0;
   }
 }
+
+/*
+ * 环境暂停：宿主在小精灵面板打开 / 切后台 / 窗口失焦时给 <html> 加 data-ambient="paused"。
+ * 造型动画全都冻结（从原处继续，不跳变）——SVG 里的 CSS 动画跑在主线程上，
+ * 面板盖住星空时没必要继续算。
+ */
+:global(html[data-ambient="paused"]) .character,
+:global(html[data-ambient="paused"]) .character * {
+  animation-play-state: paused !important;
+}
