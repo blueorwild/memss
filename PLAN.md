@@ -670,3 +670,81 @@ begin(mode, welcome) / reset / setMessages / patch
 - 站长侧 `flow-behavior` 20/20（连跑三次，其中一次窄屏纵向拖动跟手偶发 FAIL Δ=-0.2，属已知**测试脚本**抖动：
   窄屏拖动目标偶被小精灵压住；已两次复跑 20/20、且本次改动不涉及星空页）。
 - `tsc` / `eslint` / `next build` 全绿。
+
+## 27. 访客只读浏览 + 访客精灵只读工具（已完成）
+
+### 目标
+访客从「什么都看不到」改成「**只读能看**」；访客精灵从「纯闲聊」改成「**只读工具**（检索/展示/带路）」；
+并给站长一个总开关，随时能把对外可见整体关掉。
+
+### 权限模型：两条门禁 + 一个开关
+- `requireOwner()`：所有**写**接口（categories/memories/conversations/settings/media 的 POST/PATCH/PUT/DELETE）不变。
+- `requireReadAccess()`（新）：**只读**接口 —— 站长永远放行；访客仅在 `allowBrowse` 打开时放行，否则 401。
+  只用在三处：`GET /api/categories`、`GET /api/memories/search`、`GET /api/media/[...path]`。
+  页面数据走 RSC 直查库，不经过这些接口。
+- `settings.guest.allowBrowse`（新，**默认 true**）：页面与接口都按它硬切，不是藏 UI。
+  - `allowBrowse=true`：`/` → 站长与访客都 `redirect("/star/globe")`；`/star/...`、`/memory/...` 直接可读。
+  - `allowBrowse=false`：回到旧行为 —— `/` 渲染空星空（`GuestHome` 保留），两个深链 `redirect("/")`，三个只读 GET 401。
+
+### 访客侧界面（只读）
+- 星空页 / 回忆详情：`⋯`（编辑/遗忘）菜单与删除弹层按 `useAuthed()` 隐藏；详情页图片、音乐照常可读。
+- 小精灵功能栏：访客 = `对话 / 搜索 / 设置`（**新增只读的搜索面板**，无「上传」）；`allowBrowse=false` 时降级为 `对话 / 设置`。
+- `Sprite` 挡住访客可达的写视图（`upload` / `edit` 一律落回对话），工具下发 `openUpload`/`openEdit` 在客户端也再拦一道。
+- 访客小精灵的位置改成和站长一致：**默认右下角、可拖拽**，但位置存**独立 key**（`sprite-pos:guest`），
+  绝不覆盖站长自己的摆放。
+- 开场白按开关二选一：开放时「这里的东西你都可以看（只读）…」；关闭时回到「星空还空着…」。
+- ⚠️ 实现坑：`AuthedProvider` 原本只包住 `Sprite`，而 `StarfieldPage` / `MemoryScene` 是**页面**里的客户端组件，
+  `useAuthed()` 恒为默认值 `false` —— 直接把站长的写入口也一起藏了（被自己的回归测试当场抓住）。
+  现改为在 `layout.tsx` 里用 `AuthedProvider` 包住 `children` + `Sprite`，并新增 `BrowseContext` / `useBrowseOpen()`。
+
+### 访客精灵：只读工具子集
+- `createAgentTools(ctx, { readOnly: true })` 只返回 5 个：`searchMemories`、`showMemories`、
+  `navigateToCategory`、`openMemory`、`openSearch`；上传/编辑/迁移/遗忘**不注入**（模型没有调用的可能）。
+- 访客侧 `searchMemories` 一次最多带 30 条（站长不限制）。
+- 修掉一个真实体验问题：模型常把**类别名称**当 `categoryId` 传（如「云南」），原来直接查不到 → 答「0 条」。
+  现在先按 id、再按名称解析；解析不到就不加类别过滤并在结果里带 `note` 说明。
+
+### `/api/agent` 两种身份统一
+- 访客改用 AI SDK 跑工具循环（不再手写裸 fetch），并把免费档的两项控制塞进请求体：
+  `createOpenAICompatible({ transformRequestBody })` → `reasoning: { enabled: false }`（推理档不关会只吐思考、正文空白）
+  与 `models: [首选, 兜底…]`（≤3 项，被限流/下线时 OpenRouter 自动换档）。
+- 访客轮：`stopWhen: isStepCount(4)`、`maxRetries: 0`（不自动重试，免得把当天额度翻倍消耗）、
+  90 秒超时、低温度 0.2、**不落库、不建会话、不发 `meta`**；
+  错误经 `APICallError` 的 status/responseBody 走 `guestErrorMessage` 中文化。
+- 少数档位强制推理（`reasoning:{mandatory:true}`，如 `liquid/lfm-2.5-2.6b:free`）：请求 400 → 摘掉 reasoning 开关**重试一次**，
+  并把该档位拉黑 6 小时（`markGuestModelUnusable`）。
+- 访客不落库就没有工具历史 → 前端把「已展示过的回忆 id」（`shownIds`）随请求带上，避免跨轮重复展示。
+- 站长轮：行为与之前完全一致（工具全集、同意上下文 `consentAsked`、落库与卡片绑定、`x-opencode-session`）。
+
+### 免费档过滤与默认档
+- 只保留「免费（pricing 全 0）+ 能输出文本 + `supported_parameters` 含 `tools` + 非强制推理」的档位（20 → 18）。
+- 实测（2026-09）：`cohere/north-mini-code:free` 会检索且没跑偏（修掉类别名坑之后 2/2）；
+  `nex-agi/nex-n2.5-mini:free` 出过完整卡片流程、也有跑偏答非所问的样本；`dots`/`qwen` 常只凭类别概览直接作答。
+  默认档候选表以此排序（`DEFAULT_CANDIDATES`），唯一写死的 `FALLBACK_DEFAULT_MODEL` 同步换成 cohere。
+- `deepseek` 已从免费档下架 → 原来的「deepseek 优先」排序规则删除。
+
+### 设置面板
+- 原来的「访客对话（免费模型）」区块与新的浏览开关合并为**「访客设置」**：开关点一下即时 PUT 生效；
+  密钥仍是「保存」按钮提交。文案讲清「访客一律只读」与「关掉只剩空星空与闲聊」。
+
+### 验证
+- 访客只读（真实 3000，`/tmp/guest-readonly-verify.mjs`）：`/` 落 `/star/globe`、能看到类别与回忆、面包屑正常、
+  功能栏 = 对话/搜索/设置（无上传）、星空页与详情页**都没有 `⋯` 写入口**、搜索面板可用、
+  详情页图片真实加载（`naturalWidth>0`）、封面临时可读（200）、
+  **访客写接口全 401**（POST/PATCH/DELETE categories、PATCH/DELETE memories、PUT settings）+
+  站长专属 GET（settings/conversations/memories/[id]）仍 401。
+- 开关关/开（临时实例 3101，`/tmp/guest-toggle-verify.mjs`）**15/15**：关闭后站长自己不受影响；
+  访客 `/` 是空星空、两个深链被弹回首页、三个只读 GET 401（免费模型列表仍公开）、
+  功能栏降级为对话/设置、开场白回到「星空还空着」；恢复后访客又能进星空。
+- 锁定态访客精灵实测：请求**没有任何 tool / memories 事件**，回答是「需要登录」的引导 —— 关掉开关后连只读工具都不存在。
+- 站长回归：`chat-owner-verify` 12/12（回复前切走→切回可见、conversationId 不丢、刷新恢复、关面板重开、登出隔离、重登恢复）、
+  `flow-behavior-3101` 20/20、`tsc` / `eslint` / `next build` 全绿。
+- 访客对话出卡片：链路已验（直连 API 跑出 `tool:searchMemories → showMemories → memories(3/3)`；
+  UI 跑出过 `cards:2`）。免费档模型波动大，**验收当天最后两次受「免费额度用尽（52/50）」影响未能复现**。
+
+### 已知限制 / 风险
+- **隐私面扩大**：开关打开时，局域网内任何人都能读全部类别、回忆、图片与音乐；媒体是长缓存
+  （`immutable, max-age=31536000`），关闭开关不追溯已加载的页面与浏览器缓存。
+- 访客精灵会把**回忆标题/地点等真实内容**发给 OpenRouter 免费档（可能被记录/训练）—— 这是选 5A 的代价，界面上有提示。
+- 免费档额度 50 次/天，工具循环一轮要 2~3 次请求（约合 15~25 轮对话/天）；无站内限流，额度被刷完访客会看到「限流」。
+- 免费模型能力参差（跑偏、只凭概览作答），已提供「换模型」与「重试」两个出口。

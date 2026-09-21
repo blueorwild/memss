@@ -30,6 +30,18 @@ export type ClientAction =
   | { type: "moved"; memoryId: string; path: string }
   | { type: "forgotten"; kind: "memory" | "category"; targetId: string; fallbackPath: string };
 
+/** 访客只读工具：一次检索最多带回多少条（免费档额度有限，别把上下文撑爆） */
+const GUEST_SEARCH_LIMIT = 30;
+
+/** 访客可用的只读工具（其余写操作一律不注入，服务端也就没有执行它们的可能） */
+const READ_ONLY_TOOLS = [
+  "searchMemories",
+  "showMemories",
+  "navigateToCategory",
+  "openMemory",
+  "openSearch",
+] as const;
+
 /** 类别路径名（去根节点），用于生成记忆的 location 文本 */
 function locationOfCategory(categoryId: string): string {
   return getCategoryPath(categoryId)
@@ -87,20 +99,28 @@ function resolveMemory(
 
 /**
  * 创建小精灵的工具集。
+ * opts.readOnly：访客模式——只给「看」的工具（检索/展示/导航/打开），
+ *   上传、编辑、迁移、遗忘一律不注入，模型连调用它们的机会都没有。
  * ctx.currentCategoryId：用户当前所在类别（用于默认归属与导航上下文）。
  * 危险操作（遗忘 / 迁移）的二次确认：语义判断交给模型，但服务端要求
  * **「先问过」这个上下文**——ctx.consentAsked 为 true 时（上一轮工具真的返回过 needConfirm，
  * 即小精灵确实问过用户），才认 confirm=true。这样首句祈使句（「把它删了吧」）无法一次通过，
  * 模型必须先把话复述出来问一次；用户怎么回答（是的 / 好的 / 可以 / 嗯…）仍由模型判断。
  */
-export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked?: boolean }) {
-  return {
+export function createAgentTools(
+  ctx: { currentCategoryId?: string; consentAsked?: boolean },
+  { readOnly = false }: { readOnly?: boolean } = {},
+) {
+  const all = {
     searchMemories: tool({
       description:
         "检索用户的回忆。可按关键词（匹配标题/描述/地点）、类别（含其子类别）、日期范围过滤。回答“我有哪些回忆”这类问题前应先调用。返回的每条包含 id、标题、日期、location 与所属类别路径 category，便于按地点/归属做筛选。",
       inputSchema: z.object({
         query: z.string().optional().describe("关键词"),
-        categoryId: z.string().optional().describe("限定类别 id（含其子类别）"),
+        categoryId: z
+          .string()
+          .optional()
+          .describe("限定类别（含其子类别）：可传类别 id，也可直接传类别名称，如「云南」「东京」"),
         from: z.string().optional().describe("起始日期 YYYY-MM-DD"),
         to: z.string().optional().describe("结束日期 YYYY-MM-DD"),
         limit: z
@@ -109,7 +129,35 @@ export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked
           .describe(`返回条数上限，默认 ${SEARCH_DEFAULT_LIMIT}、最大 ${SEARCH_MAX_LIMIT}`),
       }),
       execute: ({ query, categoryId, from, to, limit }) => {
-        const { total, count, items } = runMemorySearch({ query, categoryId, from, to, limit });
+        // 模型经常直接给类别「名称」，而这里只认 id：先按 id 试，再按名称解析
+        // （解析不到就不加类别过滤，并在结果里说明，免得回答「0 条」让人以为没有回忆）
+        let scopeId: string | undefined;
+        let scopeNote: string | undefined;
+        if (categoryId?.trim()) {
+          const raw = categoryId.trim();
+          if (getCategory(raw)) {
+            scopeId = raw;
+          } else {
+            const found = findCategoryByName(raw);
+            if (found) {
+              scopeId = found.cat.id;
+              scopeNote = found.note;
+            } else {
+              scopeNote = `没有找到名为「${raw}」的类别，本次检索未限定类别。`;
+            }
+          }
+        }
+        // 访客侧把一次检索的条数夹紧（站长不受限）
+        const effectiveLimit = readOnly
+          ? Math.min(limit ?? SEARCH_DEFAULT_LIMIT, GUEST_SEARCH_LIMIT)
+          : limit;
+        const { total, count, items } = runMemorySearch({
+          query,
+          categoryId: scopeId,
+          from,
+          to,
+          limit: effectiveLimit,
+        });
         return {
           total,
           count,
@@ -120,6 +168,7 @@ export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked
             location: m.location,
             category: m.category,
           })),
+          ...(scopeNote ? { note: scopeNote } : {}),
         };
       },
     }),
@@ -498,4 +547,11 @@ export function createAgentTools(ctx: { currentCategoryId?: string; consentAsked
       },
     }),
   };
+
+  if (!readOnly) return all;
+
+  // 访客：只保留只读子集
+  const picked: Record<string, unknown> = {};
+  for (const name of READ_ONLY_TOOLS) picked[name] = all[name];
+  return picked as unknown as typeof all;
 }

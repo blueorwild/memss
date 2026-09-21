@@ -17,6 +17,7 @@ import type { Category, CategoryWithCount, MemoryCard } from "@/lib/db/queries";
 import { shouldIgnorePageShortcut } from "@/lib/dom";
 import { useElementSize } from "@/lib/use-element-size";
 import { RAIL_COMPACT_BELOW, MEMORY_FLEX_RATIO } from "@/lib/layout-seed";
+import { useAuthed } from "@/components/sprite/AuthContext";
 import { useSpriteStore } from "@/store/sprite";
 import StarBackground from "./StarBackground";
 import Breadcrumb from "./Breadcrumb";
@@ -40,6 +41,8 @@ export default function StarfieldPage({
   breadcrumb: Category[];
 }) {
   const router = useRouter();
+  // 访客只读：不给「编辑 / 遗忘」入口（服务端也会拒绝写请求）
+  const authed = useAuthed();
   const navRequest = useSpriteStore((s) => s.navRequest);
   const clearNavRequest = useSpriteStore((s) => s.clearNavRequest);
   // 整页可用高度（header 以下的 flex-1 区）：记忆卡片档位按它算，
@@ -143,7 +146,7 @@ export default function StarfieldPage({
             <Breadcrumb items={breadcrumb.map((c) => ({ id: c.id, name: c.name }))} />
             {path.length > 1 && <BackButton onClick={goUp} label="返回上一级" />}
           </div>
-          {current.parentId && (
+          {authed && current.parentId && (
             <MoreMenu
               items={[
                 { label: "编辑", onSelect: () => setEditOpen(true) },
@@ -247,7 +250,7 @@ export default function StarfieldPage({
       {/* 编辑此分类：改名 / 移动到其它父级（保存后刷新路由） */}
       <CategoryEditDialog
         current={current}
-        open={editOpen}
+        open={authed && editOpen}
         onOpenChange={setEditOpen}
         onSaved={(newPath) => {
           setEditOpen(false);
@@ -257,8 +260,8 @@ export default function StarfieldPage({
         }}
       />
 
-      {/* 删除此分类：确认弹层（有回忆时可选「迁移」或「一并遗忘」） */}
-      <Dialog open={delOpen} onOpenChange={setDelOpen}>
+      {/* 删除此分类：确认弹层（有回忆时可选「迁移」或「一并遗忘」；仅站长可见） */}
+      <Dialog open={authed && delOpen} onOpenChange={setDelOpen}>
         <DialogContent>
           <DialogTitle>删除「{current.name}」？</DialogTitle>
           <DialogDescription>

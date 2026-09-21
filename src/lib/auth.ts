@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { getSessionRow, getSetting, setSetting } from "./db/queries";
+import { guestBrowseAllowed } from "./settings";
 import {
   createSession,
   deleteAllSessions,
@@ -139,6 +140,16 @@ export async function isOwner(): Promise<boolean> {
 /** 数据 API 的服务端门禁：未登录返回 401 响应，已登录返回 null */
 export async function requireOwner(): Promise<Response | null> {
   if (await isOwner()) return null;
+  return Response.json({ error: "需要登录" }, { status: 401 });
+}
+
+/**
+ * 只读数据 API 的门禁：站长永远放行；访客仅在「允许访客浏览」打开时放行。
+ * 写操作一律用 requireOwner，绝不能走这里。
+ */
+export async function requireReadAccess(): Promise<Response | null> {
+  if (await isOwner()) return null;
+  if (guestBrowseAllowed()) return null;
   return Response.json({ error: "需要登录" }, { status: 401 });
 }
 

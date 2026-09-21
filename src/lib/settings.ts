@@ -158,12 +158,14 @@ export function resolveActiveProvider(config: AgentConfig = getAgentConfig()): R
 // ---------- 访客对话（OpenRouter 免费模型） ----------
 
 /**
- * 访客配置：只用一把 OpenRouter 密钥。
+ * 访客配置：一把 OpenRouter 密钥 + 一个「允许访客浏览」开关。
  * 早期版本这里存的是 OpenCode Zen 的 key（Zen 免费档不允许站外调用，已弃用），
  * 所以读的时候**按前缀筛**：不是 `sk-or-` 开头的当作没配置，免得拿旧 key 去敲 OpenRouter。
  */
 type GuestConfig = {
   apiKeyEnc: string | null;
+  /** 访客能否只读浏览站长的回忆星空（默认开） */
+  allowBrowse: boolean;
 };
 
 /** OpenRouter 的密钥前缀 */
@@ -177,25 +179,40 @@ export type PublicGuestConfig = {
   fromEnv: boolean;
   /** 密钥看起来像不像 OpenRouter 的（sk-or- 开头），用于界面提示 */
   keyLooksValid: boolean;
+  /** 访客能否只读浏览回忆（关掉后访客只剩空星空 + 闲聊） */
+  allowBrowse: boolean;
 };
 
 export type SaveGuestConfigInput = {
   /** 省略/空串=保留原值，null=清除，有值=更新 */
   apiKey?: string | null;
+  /** 开关：允许访客只读浏览 */
+  allowBrowse?: boolean;
 };
 
 function parseGuestConfig(raw: string | null): GuestConfig {
-  if (!raw) return { apiKeyEnc: null };
+  if (!raw) return { apiKeyEnc: null, allowBrowse: true };
   try {
-    const parsed = JSON.parse(raw) as { apiKeyEnc?: unknown };
+    const parsed = JSON.parse(raw) as { apiKeyEnc?: unknown; allowBrowse?: unknown };
+    const allowBrowse = typeof parsed.allowBrowse === "boolean" ? parsed.allowBrowse : true;
     const enc = typeof parsed.apiKeyEnc === "string" ? parsed.apiKeyEnc : null;
-    if (!enc) return { apiKeyEnc: null };
+    if (!enc) return { apiKeyEnc: null, allowBrowse };
     // 旧版本存的 Zen key 直接视为未配置
     const plain = decryptSecret(enc);
-    return plain && plain.startsWith(OPENROUTER_KEY_PREFIX) ? { apiKeyEnc: enc } : { apiKeyEnc: null };
+    return plain && plain.startsWith(OPENROUTER_KEY_PREFIX)
+      ? { apiKeyEnc: enc, allowBrowse }
+      : { apiKeyEnc: null, allowBrowse };
   } catch {
-    return { apiKeyEnc: null };
+    return { apiKeyEnc: null, allowBrowse: true };
   }
+}
+
+/**
+ * 访客是否被允许只读浏览回忆。
+ * 只读浏览、只读工具、以及访客可见的三个只读 GET 都由它决定（服务端硬切）。
+ */
+export function guestBrowseAllowed(): boolean {
+  return parseGuestConfig(getSetting(GUEST_KEY)).allowBrowse;
 }
 
 /** 访客对话实际使用的密钥：环境变量优先，其次是设置里保存的（密文解密） */
@@ -214,6 +231,7 @@ export function getPublicGuestConfig(): PublicGuestConfig {
     keyMask: plain ? maskSecret(plain) : "",
     fromEnv,
     keyLooksValid: plain.startsWith(OPENROUTER_KEY_PREFIX),
+    allowBrowse: guestBrowseAllowed(),
   };
 }
 
@@ -224,6 +242,7 @@ export function saveGuestConfig(input: SaveGuestConfigInput): PublicGuestConfig 
   } else if (typeof input.apiKey === "string" && input.apiKey.trim()) {
     config.apiKeyEnc = encryptSecret(input.apiKey.trim());
   }
+  if (typeof input.allowBrowse === "boolean") config.allowBrowse = input.allowBrowse;
   setSetting(GUEST_KEY, JSON.stringify(config));
   return getPublicGuestConfig();
 }

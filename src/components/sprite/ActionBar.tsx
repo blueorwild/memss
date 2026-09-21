@@ -2,7 +2,7 @@
 
 import { useSpriteStore } from "@/store/sprite";
 import type { SpriteView } from "@/store/sprite";
-import { useAuthed } from "./AuthContext";
+import { useAuthed, useBrowseOpen } from "./AuthContext";
 
 /** 功能按钮定义：后续可在此扩展更多能力（标签用短词，窄屏 4 个按钮不至于换行） */
 const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
@@ -12,17 +12,22 @@ const ACTIONS: { key: SpriteView; label: string; icon: string }[] = [
   { key: "settings", label: "设置", icon: "⚙" },
 ];
 
-/** 未登录访客可用的功能：只能对话与查看设置（登录入口在设置里） */
-const GUEST_KEYS: SpriteView[] = ["chat", "settings"];
+/** 未登录访客（站长开放了浏览）可用的功能：对话、搜索、设置（都是只读） */
+const GUEST_KEYS: SpriteView[] = ["chat", "search", "settings"];
+/** 站长关掉「允许访客浏览」后，访客只剩对话与设置（搜索也查不到东西了） */
+const GUEST_LOCKED_KEYS: SpriteView[] = ["chat", "settings"];
 
-/** 小精灵功能按钮栏：切换对话 / 搜索 / 上传回忆 / 设置（访客只有对话与设置） */
+/** 小精灵功能按钮栏：切换对话 / 搜索 / 上传回忆 / 设置（访客没有上传） */
 export default function ActionBar() {
   const view = useSpriteStore((s) => s.view);
   const openView = useSpriteStore((s) => s.openView);
   const openUpload = useSpriteStore((s) => s.openUpload);
   const authed = useAuthed();
+  const browseOpen = useBrowseOpen();
 
-  const actions = authed ? ACTIONS : ACTIONS.filter((it) => GUEST_KEYS.includes(it.key));
+  const actions = authed
+    ? ACTIONS
+    : ACTIONS.filter((it) => (browseOpen ? GUEST_KEYS : GUEST_LOCKED_KEYS).includes(it.key));
 
   return (
     <div className="flex gap-2 border-b border-white/10 px-4 py-2">

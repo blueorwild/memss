@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
-import { requireOwner } from "@/lib/auth";
+import { requireReadAccess } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -31,7 +31,8 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ path: string[] }> },
 ) {
-  const denied = await requireOwner();
+  // 图片/音乐：站长永远可读；访客在「允许访客浏览」打开时可读（回忆内容本身已可见）
+  const denied = await requireReadAccess();
   if (denied) return denied;
   const { path: parts } = await ctx.params;
   const abs = path.normalize(path.join(MEDIA_ROOT, parts.join("/")));

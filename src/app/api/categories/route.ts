@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
-import { requireOwner } from "@/lib/auth";
+import { requireOwner, requireReadAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getCategoryPath, listCategories } from "@/lib/db/queries";
@@ -8,9 +8,9 @@ import { getCategoryPath, listCategories } from "@/lib/db/queries";
 /** 最大层级（含根节点）：根-国家-省-市-自建 */
 const MAX_DEPTH = 5;
 
-/** 返回全部类别，供上传表单的类别级联使用 */
+/** 返回全部类别：站长与（开放浏览时的）访客都可读，用于搜索面板与服务端级联 */
 export async function GET() {
-  const denied = await requireOwner();
+  const denied = await requireReadAccess();
   if (denied) return denied;
   return Response.json(listCategories());
 }

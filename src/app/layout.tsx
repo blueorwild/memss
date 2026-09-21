@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sprite from "@/components/sprite/Sprite";
+import { AuthedProvider } from "@/components/sprite/AuthContext";
 import { isOwner } from "@/lib/auth";
+import { guestBrowseAllowed } from "@/lib/settings";
 import { SKY_VOID_HEX } from "@/lib/theme";
 import "./globals.css";
 
@@ -32,17 +34,21 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // 登录态在服务端判定：访客首屏就是访客界面，不会闪烁
+  // 登录态与「允许访客浏览」都在服务端判定：首屏就是正确的一版，不会闪烁
   const authed = await isOwner();
+  const browseOpen = guestBrowseAllowed();
   return (
     <html
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
-        {/* 全局悬浮小精灵（跨页面常驻） */}
-        <Sprite authed={authed} />
+        {/* 登录态要包住 children：页面里的客户端组件（星空页 / 回忆详情）也靠它判断读写权限 */}
+        <AuthedProvider value={authed} browseOpen={browseOpen}>
+          {children}
+          {/* 全局悬浮小精灵（跨页面常驻） */}
+          <Sprite authed={authed} />
+        </AuthedProvider>
       </body>
     </html>
   );

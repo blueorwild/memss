@@ -13,7 +13,47 @@
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /** 最后兜底（列表拉不到时用）：唯一写死的模型 id，轮换下线了就改这一行 */
-export const FALLBACK_DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731:free";
+export const FALLBACK_DEFAULT_MODEL = "cohere/north-mini-code:free";
+
+/**
+ * 默认档候选（按顺序取第一个仍在实时列表里的）。
+ * 免费档轮换很快，所以这里只是「优先」，并不写死：都不在就退回列表首个。
+ * 入选标准：免费档 + 支持工具调用 + 实测（2026-09）真的会调工具。
+ * 实测记录：cohere 修好「类别名称当 id」的坑之后 2/2 都走「检索 → 作答」且没跑偏；
+ * nex-agi/nex-n2.5-mini 出过卡片但也有跑偏（答非所问）的样本；dots/qwen 常只凭概览作答。
+ * 免费档本身波动很大，所以访客随时可以在「免费模型」里换一个、或点重试。
+ */
+const DEFAULT_CANDIDATES = [
+  "cohere/north-mini-code:free",
+  "nex-agi/nex-n2.5-mini:free",
+  "dots-studio/dots-3-note-preview:free",
+  "qwen/qwen3.8-27b:free",
+];
+
+/** 上游明确拒绝过的档位（403「仅聚合端点可用」等）：6 小时内不再推荐 */
+const BLOCKED_TTL_MS = 6 * 60 * 60 * 1000;
+const blockedUntil = new Map<string, number>();
+
+/** 记下某个档位当前不可用（请求失败时调用），列表与兜底链都会跳过它 */
+export function markGuestModelUnusable(id: string): void {
+  if (!id) return;
+  blockedUntil.set(id, Date.now() + BLOCKED_TTL_MS);
+}
+
+function isUsable(id: string): boolean {
+  const until = blockedUntil.get(id);
+  if (until === undefined) return true;
+  if (Date.now() > until) {
+    blockedUntil.delete(id);
+    return true;
+  }
+  return false;
+}
+
+/** 过滤掉临时不可用的档位 */
+function usableOnly(models: GuestModel[]): GuestModel[] {
+  return models.filter((m) => isUsable(m.id));
+}
 
 /** 免费档列表缓存时长：6 小时（过期后先返回旧列表、后台刷新） */
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -40,7 +80,19 @@ type RawModel = {
   context_length?: unknown;
   pricing?: { prompt?: unknown; completion?: unknown } | null;
   architecture?: { output_modalities?: unknown } | null;
+  supported_parameters?: unknown;
+  reasoning?: { mandatory?: unknown } | null;
 };
+
+/** 访客精灵要能检索/带路，只给支持工具调用的档位（官方轮换时会自动跟上） */
+function supportsTools(raw: RawModel): boolean {
+  return Array.isArray(raw.supported_parameters) && raw.supported_parameters.includes("tools");
+}
+
+/** 少数档位强制开推理（`reasoning:{enabled:false}` 会被上游 400 拒掉），不给访客 */
+function reasoningMandatory(raw: RawModel): boolean {
+  return raw.reasoning?.mandatory === true;
+}
 
 /**
  * 只保留真正的免费档：id 以 `:free` 结尾（OpenRouter 对免费档的官方标记）
@@ -63,34 +115,37 @@ function displayName(raw: RawModel): string {
 }
 
 /**
- * 排序：DeepSeek 优先（默认聊天模型）→ 上下文长度降序 → id。
- * 顺带过滤掉审核类等非聊天档位。
+ * 归一化 + 排序：先筛出真正的免费档，再优先留下「能调工具且不强制推理」的档位。
+ * 万一某个时刻一个可用的都没有（官方大轮换），退回全部免费档——至少还能闲聊。
+ * 排序：上下文长度降序 → id。
  */
 function normalize(rawList: RawModel[]): GuestModel[] {
-  const models: GuestModel[] = [];
+  const free: GuestModel[] = [];
+  const toolCapable = new Set<string>();
   for (const raw of rawList) {
     const id = typeof raw.id === "string" ? raw.id : "";
     if (!id || typeof raw.pricing !== "object" || !isFreeModel(raw)) continue;
     if (EXCLUDE_ID_PARTS.some((part) => id.includes(part))) continue;
-    models.push({
+    free.push({
       id,
       name: displayName(raw),
       ctx: typeof raw.context_length === "number" ? raw.context_length : 0,
     });
+    if (supportsTools(raw) && !reasoningMandatory(raw)) toolCapable.add(id);
   }
+  const prefer = free.filter((m) => toolCapable.has(m.id));
+  const models = prefer.length > 0 ? prefer : free;
   models.sort((a, b) => {
-    const aDeep = a.id.includes("deepseek") ? 0 : 1;
-    const bDeep = b.id.includes("deepseek") ? 0 : 1;
-    if (aDeep !== bDeep) return aDeep - bDeep;
     if (a.ctx !== b.ctx) return b.ctx - a.ctx;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
   return models;
 }
 
-/** 默认模型：优先 id 含 deepseek 的（当前就是 deepseek-v4-flash） */
+/** 默认模型：候选表里第一个仍在列表中的；都没有就用列表首个 */
 export function pickDefaultModel(models: GuestModel[]): string {
-  return models.find((m) => m.id.includes("deepseek"))?.id ?? models[0]?.id ?? FALLBACK_DEFAULT_MODEL;
+  const hit = DEFAULT_CANDIDATES.find((id) => models.some((m) => m.id === id));
+  return hit ?? models[0]?.id ?? FALLBACK_DEFAULT_MODEL;
 }
 
 let cache: { models: GuestModel[]; fetchedAt: number } | null = null;
@@ -136,9 +191,9 @@ function refresh(): Promise<GuestModel[]> {
 export async function getGuestModels(): Promise<GuestModel[]> {
   if (cache) {
     if (Date.now() - cache.fetchedAt >= TTL_MS) void refresh();
-    return cache.models;
+    return usableOnly(cache.models);
   }
-  return refresh();
+  return usableOnly(await refresh());
 }
 
 /**
@@ -153,7 +208,10 @@ export async function resolveGuestModel(requested: string | undefined): Promise<
   const models = await getGuestModels();
   const ids = new Set(models.map((m) => m.id));
   const model = requested && ids.has(requested) ? requested : pickDefaultModel(models);
-  const chain = [model, ...models.map((m) => m.id).filter((id) => id !== model)].slice(
+  // 兜底链优先放「默认候选」里的档位（更可能真的能用），再补其它免费档
+  const others = models.map((m) => m.id).filter((id) => id !== model);
+  const preferred = DEFAULT_CANDIDATES.filter((id) => others.includes(id));
+  const chain = [model, ...preferred, ...others.filter((id) => !preferred.includes(id))].slice(
     0,
     MAX_MODEL_CHAIN,
   );

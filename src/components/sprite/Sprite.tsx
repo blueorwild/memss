@@ -8,7 +8,6 @@ import { useIsMobile, useMediaQuery } from "@/lib/use-media-query";
 import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import ActionBar from "./ActionBar";
-import { AuthedProvider } from "./AuthContext";
 import ChatPanel from "./ChatPanel";
 import MemoryForm from "./MemoryForm";
 import SearchPanel from "./SearchPanel";
@@ -40,8 +39,11 @@ const HIT = {
 };
 /** 视口边距 */
 const MARGIN = 12;
-/** 位置存储键（localStorage） */
+/** 位置存储键（localStorage）：访客用独立的 key，绝不覆盖站长自己的摆放 */
 const POS_KEY = "sprite-pos";
+function posKey(authed: boolean): string {
+  return authed ? POS_KEY : `${POS_KEY}:guest`;
+}
 /** 桌面浮动面板尺寸与间隙（用于角色 / 面板互相避让） */
 const PANEL_W = 360;
 const PANEL_H = 460;
@@ -187,7 +189,7 @@ const PARTICLES = Array.from({ length: 20 }, () => ({
 /** 悬浮小精灵：可拖拽的线稿角色 + 可展开面板（全局常驻） */
 export default function Sprite({ authed }: { authed: boolean }) {
   const open = useSpriteStore((s) => s.open);
-  const view = useSpriteStore((s) => s.view);
+  const storeView = useSpriteStore((s) => s.view);
   const editMemoryId = useSpriteStore((s) => s.editMemoryId);
   const toggle = useSpriteStore((s) => s.toggle);
   const close = useSpriteStore((s) => s.close);
@@ -199,6 +201,9 @@ export default function Sprite({ authed }: { authed: boolean }) {
   const [dust, setDust] = useState<Dust[]>([]);
   // 宽屏面板左上角坐标（null = 跟随角色推算；手动拖过后与角色解耦，刷新即复位）
   const [panelPos, setPanelPos] = useState<Box | null>(null);
+  // 访客只读：上传 / 编辑视图对他们不存在（工具或外部调用也进不来），统一落回对话
+  const view =
+    !authed && (storeView === "upload" || storeView === "edit") ? "chat" : storeView;
   // 动作调度：状态机与计时都在 store 里（见 store/pet-actor.ts），这里只订阅结果透传给美术包
   const action = usePetActor((s) => s.action);
   const actionKey = usePetActor((s) => s.actionKey);
@@ -306,7 +311,7 @@ export default function Sprite({ authed }: { authed: boolean }) {
     [],
   );
 
-  // 初始化位置：站长优先读 localStorage，否则默认右下角；访客居中且不读也不写位置
+  // 初始化位置：优先读自己那份 localStorage（站长 / 访客各一份），否则默认右下角
   // 用 setTimeout 异步设置，避免在 effect 内同步 setState 触发级联渲染
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -317,19 +322,15 @@ export default function Sprite({ authed }: { authed: boolean }) {
       const safeB = readSafeBottom(isMobile);
       safeBottomRef.current = safeB;
       const maxY = h - MARGIN - PET_BOX_H - safeB;
-      let next: Pt = authed
-        ? { x: w - MARGIN - PET_W, y: maxY }
-        : { x: (w - PET_W) / 2, y: (h - PET_BOX_H) / 2 };
-      if (authed) {
-        try {
-          const saved = localStorage.getItem(POS_KEY);
-          if (saved) {
-            const p = JSON.parse(saved) as Pt;
-            next = clampViewport(p, safeB);
-          }
-        } catch {
-          /* 读取失败则用默认位置 */
+      let next: Pt = { x: w - MARGIN - PET_W, y: maxY };
+      try {
+        const saved = localStorage.getItem(posKey(authed));
+        if (saved) {
+          const p = JSON.parse(saved) as Pt;
+          next = clampViewport(p, safeB);
         }
+      } catch {
+        /* 读取失败则用默认位置 */
       }
       posRef.current = next;
       setPos(next);
@@ -429,10 +430,9 @@ export default function Sprite({ authed }: { authed: boolean }) {
       usePetActor.getState().notifyDragEnd();
     }
     // 抽屉打开期间的坐标是「让位」结果，不持久化（否则下次打开会从抽屉上方开始）
-    // 访客态的位置也不持久化：避免访客的摆放盖掉站长自己的位置
-    if (d.moved && posRef.current && authed && !(isMobile && open)) {
+    if (d.moved && posRef.current && !(isMobile && open)) {
       try {
-        localStorage.setItem(POS_KEY, JSON.stringify(posRef.current));
+        localStorage.setItem(posKey(authed), JSON.stringify(posRef.current));
       } catch {
         /* 存储失败忽略 */
       }
@@ -541,7 +541,7 @@ export default function Sprite({ authed }: { authed: boolean }) {
   } as CSSProperties;
 
   return (
-    <AuthedProvider value={authed}>
+    <>
       {/* 拖尾光带（加粗、发光、逐点淡出） */}
       {trail.map((p) => (
         <motion.span
@@ -678,18 +678,12 @@ export default function Sprite({ authed }: { authed: boolean }) {
         可拖拽的小精灵角色：
         外框 = 造型 + 动作余量（透明、不拦事件），命中区只覆盖角色主体（见 SPEC.md §3）。
         层级 z-[62]：高于桌面面板（z-60），低于窄屏遮罩（z-65）与抽屉（z-70）。
-        访客态居中显示（且位置不持久化）；位置尚未初始化时也用同样的兜底定位。
+        位置尚未初始化时用右下角兜底；访客与站长各自读存自己的位置。
       */}
       <div
         className={`pointer-events-none fixed touch-none select-none ${
           open && isMobile ? "z-[68]" : "z-[62]"
-        } ${
-          pos
-            ? ""
-            : authed
-              ? "bottom-6 right-6"
-              : "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-        }`}
+        } ${pos ? "" : "bottom-6 right-6"}`}
         style={petStyle}
       >
         <PetArt
@@ -716,6 +710,6 @@ export default function Sprite({ authed }: { authed: boolean }) {
           }}
         />
       </div>
-    </AuthedProvider>
+    </>
   );
 }

@@ -9,7 +9,7 @@ import { useChatSession, type ChatMode, type MemoryCardItem, type Msg } from "@/
 import { usePetActor } from "@/store/pet-actor";
 import { useSpriteStore } from "@/store/sprite";
 import type { ClientAction } from "@/lib/agent-tools";
-import { useAuthed } from "./AuthContext";
+import { useAuthed, useBrowseOpen } from "./AuthContext";
 import HistoryPanel, { type ConversationRow } from "./HistoryPanel";
 
 /** 服务端 SSE 事件 */
@@ -37,12 +37,15 @@ const TOOL_LABEL: Record<string, string> = {
 };
 
 const WELCOME = "你好，我是这片星空里的小精灵。想聊点什么？";
-/** 访客（未登录）的开场白：点明这片星空还是空的，并给出使用引导 */
+/** 访客（未登录）的开场白：点明这里可以看（只读），并给出使用引导 */
 const GUEST_WELCOME =
+  "你好，我是这片星空里的小精灵。这里的东西你都可以看（只读）——想找哪段回忆、想逛哪片星空，跟我说一声就行。";
+/** 站长关掉「允许访客浏览」时：只剩空星空与闲聊 */
+const GUEST_LOCKED_WELCOME =
   "你好，我是这片星空里的小精灵。星空还空着——想随便聊聊，或者问问我这里能做什么？";
 const STORAGE_KEY = "sprite:conversationId";
 /** 访客提到这些词就把他带到设置里的「账号」（免费模型不保证支持工具调用，故在客户端兜一层） */
-const LOGIN_HINTS = ["登录", "登陆", "账号", "帐号", "sign in", "signin", "我的回忆"];
+const LOGIN_HINTS = ["登录", "登陆", "账号", "帐号", "sign in", "signin"];
 
 /** 对话面板：站长以数据库为会话真相源，访客不落库；两者的聊天状态都暂存在 chat-session store 里，
  *  因此切换视图 / 关闭面板再回来时，在途的流式回复与草稿都不会丢。 */
@@ -50,8 +53,9 @@ export default function ChatPanel() {
   const router = useRouter();
   const pathname = usePathname();
   const authed = useAuthed();
+  const browseOpen = useBrowseOpen();
   const mode: ChatMode = authed ? "owner" : "guest";
-  const welcome = authed ? WELCOME : GUEST_WELCOME;
+  const welcome = authed ? WELCOME : browseOpen ? GUEST_WELCOME : GUEST_LOCKED_WELCOME;
 
   // 聊天状态（跨视图存活，见 store/chat-session.ts）
   const messages = useChatSession((s) => s.messages);
@@ -228,9 +232,10 @@ export default function ChatPanel() {
         router.push(action.path);
       }
     } else if (action.type === "openUpload") {
-      useSpriteStore.getState().openUpload(action.draft);
+      // 访客只读：写视图一律不打开（访客也不该收到这类动作，双保险）
+      if (authed) useSpriteStore.getState().openUpload(action.draft);
     } else if (action.type === "openEdit") {
-      useSpriteStore.getState().openEdit(action.memoryId);
+      if (authed) useSpriteStore.getState().openEdit(action.memoryId);
     } else if (action.type === "openSearch") {
       useSpriteStore.getState().openSearch({ query: action.query, categoryId: action.categoryId });
     } else if (action.type === "moved") {
@@ -307,13 +312,17 @@ export default function ChatPanel() {
     if (useChatSession.getState().streaming) return;
     const patch = useChatSession.getState().patch;
     patch({ lastUser: text });
-    // 访客：不带会话 id，改为把最近的上下文随请求带上（后端不落库）
+    // 访客：不带会话 id，改为把最近的上下文随请求带上（后端不落库）；
+    // 另外把「已经展示过的回忆 id」也带上，避免跨轮重复展示（不落库就没有工具历史）
     const history = authed
       ? undefined
       : messages
           .filter((m) => m.content.trim())
           .slice(-12)
           .map((m) => ({ role: m.role, content: m.content }));
+    const shownIds = authed
+      ? undefined
+      : [...new Set(messages.flatMap((m) => m.cards?.map((c) => c.id) ?? []))];
     const wantsLogin =
       !authed && LOGIN_HINTS.some((h) => text.toLowerCase().includes(h.toLowerCase()));
     patch({ error: null, toolStatus: null });
@@ -341,6 +350,7 @@ export default function ChatPanel() {
           categoryId: currentCategoryId(),
           model: authed ? undefined : (readGuestModelChoice() ?? undefined),
           history,
+          shownIds,
         }),
         signal: controller.signal,
       });

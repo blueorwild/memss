@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireOwner } from "@/lib/auth";
+import { requireReadAccess } from "@/lib/auth";
 import { SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT, searchMemories } from "@/lib/memory-search";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  * 返回 { total, count, items }，items 含封面裁剪参数，供列表直接渲染缩略图。
  */
 export async function GET(req: NextRequest) {
-  const denied = await requireOwner();
+  const denied = await requireReadAccess();
   if (denied) return denied;
   const sp = new URL(req.url).searchParams;
   const limitRaw = Number(sp.get("limit"));

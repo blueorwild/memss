@@ -32,6 +32,7 @@ type PublicGuestConfig = {
   keyMask: string;
   fromEnv: boolean;
   keyLooksValid: boolean;
+  allowBrowse: boolean;
 };
 
 /** 输入框通用样式（移动端 16px 字号，避免 iOS 聚焦时自动放大） */
@@ -52,7 +53,7 @@ export default function SettingsPanel() {
       {authed ? (
         <>
           <AgentSettingsSection />
-          <GuestChatSection />
+          <GuestSettingsSection />
         </>
       ) : (
         <FreeModelSection />
@@ -277,14 +278,15 @@ function AgentSettingsSection() {
 }
 
 /**
- * 站长专属：访客对话（OpenCode Zen 免费模型）。
- * 访客的闲聊由这把密钥代付；没有密钥时访客对话会提示「暂不可用」，其余功能不受影响。
+ * 站长专属：访客设置——访客能看到什么（浏览开关）+ 访客对话由谁代付（OpenRouter 免费档）。
+ * 开关即时生效（一次 PUT）；密钥改动需要点「保存」。
  */
-function GuestChatSection() {
+function GuestSettingsSection() {
   const [guest, setGuest] = useState<PublicGuestConfig | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -302,6 +304,33 @@ function GuestChatSection() {
       alive = false;
     };
   }, []);
+
+  /** 切换「允许访客浏览」：点一下即时生效 */
+  async function toggleBrowse() {
+    if (!guest || toggling) return;
+    const next = !guest.allowBrowse;
+    setToggling(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guest: { allowBrowse: next } }),
+      });
+      const d = (await res.json().catch(() => ({}))) as {
+        guest?: PublicGuestConfig;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(d.error ?? "保存失败");
+      if (d.guest) setGuest(d.guest);
+      setStatus(next ? "已开放：访客可以只读浏览" : "已关闭：访客看不到任何回忆");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setToggling(false);
+    }
+  }
 
   async function save() {
     if (busy) return;
@@ -339,10 +368,45 @@ function GuestChatSection() {
     : "粘贴 OpenRouter 的 API Key（sk-or-…）";
 
   return (
-    <SettingsSection title="访客对话（免费模型）">
+    <SettingsSection title="访客设置">
       <p className="text-xs text-white/45">
-        未登录的访客只能闲聊，模型走 OpenRouter 的免费档（$0），由这把密钥代付；
-        访客看不到也改不了它。没有配置时访客对话会提示暂不可用。
+        访客（未登录）能看什么、聊什么都在这里。访客一律只读，改不了任何东西。
+      </p>
+
+      {guest === null ? (
+        <p className="text-xs text-white/40">读取中…</p>
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[13px] text-white/85">允许访客浏览回忆</p>
+            <p className="mt-0.5 text-[11px] text-white/40">
+              打开后：访客可以只读浏览类别、回忆、图片与音乐，小精灵也能帮他检索、带路；
+              关掉则只剩空星空与闲聊。
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={guest.allowBrowse}
+            aria-label="允许访客浏览回忆"
+            onClick={() => void toggleBrowse()}
+            disabled={toggling}
+            className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
+              guest.allowBrowse ? "bg-accent-deep" : "bg-white/20"
+            }`}
+          >
+            <span
+              aria-hidden
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+                guest.allowBrowse ? "left-[22px]" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      )}
+
+      <p className="text-xs text-white/45">
+        访客对话走 OpenRouter 的免费档（$0），由下面这把密钥代付；没有配置时访客对话会提示暂不可用。
       </p>
       {guest?.fromEnv ? (
         <p className="text-xs text-white/45">
@@ -448,7 +512,8 @@ function FreeModelSection() {
   return (
     <SettingsSection title="免费模型">
       <p className="text-xs text-white/45">
-        挑一个陪你聊天的模型（由站长统一提供，无需填写密钥）。
+        挑一个陪你聊天的模型（由站长统一提供，无需填写密钥）。它既要能闲聊，
+        也要能帮你检索回忆、带路逛星空。
       </p>
       {payload === null ? (
         <p className="text-xs text-white/40">读取中…</p>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Breadcrumb from "@/components/starfield/Breadcrumb";
+import { useAuthed } from "@/components/sprite/AuthContext";
 import BackButton from "@/components/ui/back-button";
 import MoreMenu from "@/components/ui/more-menu";
 import {
@@ -75,6 +76,8 @@ export default function MemoryScene({
   breadcrumb: Category[];
 }) {
   const router = useRouter();
+  // 访客只读：不给「编辑 / 遗忘」入口（服务端也会拒绝写请求）
+  const authed = useAuthed();
   const images = memory.media.filter((m) => m.type === "image");
   const audio = memory.media.find((m) => m.type === "audio");
   const [index, setIndex] = useState(0);
@@ -278,19 +281,21 @@ export default function MemoryScene({
           <Breadcrumb items={crumbItems} />
           <BackButton onClick={handleBack} />
         </div>
-        <MoreMenu
-          items={[
-            {
-              label: "编辑",
-              onSelect: () => useSpriteStore.getState().openEdit(memory.id),
-            },
-            { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
-          ]}
-        />
+        {authed && (
+          <MoreMenu
+            items={[
+              {
+                label: "编辑",
+                onSelect: () => useSpriteStore.getState().openEdit(memory.id),
+              },
+              { label: "遗忘", tone: "danger", onSelect: () => setDelOpen(true) },
+            ]}
+          />
+        )}
       </header>
 
-      {/* 遗忘确认弹层：由右上角「⋯」菜单触发 */}
-      <Dialog open={delOpen} onOpenChange={setDelOpen}>
+      {/* 遗忘确认弹层：由右上角「⋯」菜单触发（仅站长可见） */}
+      <Dialog open={authed && delOpen} onOpenChange={setDelOpen}>
         <DialogContent>
           <DialogTitle>遗忘这条回忆？</DialogTitle>
           <DialogDescription>
