@@ -289,6 +289,9 @@ function GuestSettingsSection() {
   const [toggling, setToggling] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 开关自己的反馈：贴在开关下方（分割线之上），跟密钥「保存」的提示分开
+  const [browseStatus, setBrowseStatus] = useState<string | null>(null);
+  const [browseError, setBrowseError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -310,8 +313,8 @@ function GuestSettingsSection() {
     if (!guest || toggling) return;
     const next = !guest.allowBrowse;
     setToggling(true);
-    setError(null);
-    setStatus(null);
+    setBrowseError(null);
+    setBrowseStatus(null);
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -324,9 +327,9 @@ function GuestSettingsSection() {
       };
       if (!res.ok) throw new Error(d.error ?? "保存失败");
       if (d.guest) setGuest(d.guest);
-      setStatus(next ? "已开放：访客可以只读浏览" : "已关闭：访客看不到任何回忆");
+      setBrowseStatus(next ? "已开放：访客可以只读浏览" : "已关闭：访客看不到任何回忆");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setBrowseError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setToggling(false);
     }
@@ -369,45 +372,50 @@ function GuestSettingsSection() {
 
   return (
     <SettingsSection title="访客设置">
-      <p className="text-xs text-white/45">
-        访客（未登录）能看什么、聊什么都在这里。访客一律只读，改不了任何东西。
-      </p>
-
       {guest === null ? (
         <p className="text-xs text-white/40">读取中…</p>
       ) : (
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[13px] text-white/85">允许访客浏览回忆</p>
-            <p className="mt-0.5 text-[11px] text-white/40">
-              打开后：访客可以只读浏览类别、回忆、图片与音乐，小精灵也能帮他检索、带路；
-              关掉则只剩空星空与闲聊。
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={guest.allowBrowse}
-            aria-label="允许访客浏览回忆"
-            onClick={() => void toggleBrowse()}
-            disabled={toggling}
-            className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-              guest.allowBrowse ? "bg-accent-deep" : "bg-white/20"
-            }`}
-          >
-            <span
-              aria-hidden
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
-                guest.allowBrowse ? "left-[22px]" : "left-0.5"
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] text-white/85">允许访客浏览回忆</p>
+              <p className="mt-0.5 text-[11px] text-white/40">
+                打开后：访客可以只读浏览类别、回忆、图片与音乐，小精灵也能帮他检索、带路；
+                关掉则只剩空星空与闲聊。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={guest.allowBrowse}
+              aria-label="允许访客浏览回忆"
+              onClick={() => void toggleBrowse()}
+              disabled={toggling}
+              className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
+                guest.allowBrowse ? "bg-accent-deep" : "bg-white/20"
               }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                aria-hidden
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+                  guest.allowBrowse ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          {browseStatus && <p className="text-xs text-ok">{browseStatus}</p>}
+          {browseError && <p className="text-xs text-red-400">{browseError}</p>}
+        </>
       )}
 
-      <p className="text-xs text-white/45">
-        访客对话走 OpenRouter 的免费档（$0），由下面这把密钥代付；没有配置时访客对话会提示暂不可用。
-      </p>
+      {guest !== null && <div className="border-t border-white/10" />}
+
+      <div className="min-w-0">
+        <p className="text-[13px] text-white/85">免费模型</p>
+        <p className="mt-0.5 text-[11px] text-white/40">
+          访客对话走 OpenRouter 的免费档（$0），由下面这把密钥代付；没有配置时访客对话会提示暂不可用。
+        </p>
+      </div>
       {guest?.fromEnv ? (
         <p className="text-xs text-white/45">
           已由环境变量 OPENROUTER_API_KEY 提供，界面不可修改。
