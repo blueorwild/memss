@@ -48,3 +48,6 @@ next-env.d.ts
 # uploaded media (local user data, keep dir)
 /media/uploads/*
 !/media/uploads/.gitkeep
+
+# local docker acceptance override（仅本机回环端口映射，不进仓库）
+/docker-compose.local.yml

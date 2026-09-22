@@ -262,7 +262,13 @@ const memories = [
 ];
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+// WAL 在 Windows bind mount（9p）上不可靠 → 容器由 compose 设 SQLITE_JOURNAL_MODE=DELETE，失败再兜底
+const journalMode = process.env.SQLITE_JOURNAL_MODE ?? "WAL";
+try {
+  db.pragma(`journal_mode = ${journalMode}`);
+} catch {
+  db.pragma("journal_mode = DELETE");
+}
 
 const reset = db.transaction(() => {
   db.exec("DELETE FROM media; DELETE FROM memories; DELETE FROM categories;");

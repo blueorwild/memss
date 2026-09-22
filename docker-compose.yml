@@ -15,6 +15,8 @@ services:
       COOKIE_SECURE: "1"
       PORT: "3000"
       HOSTNAME: 0.0.0.0
+      # Windows bind mount（9p）上 WAL 的共享内存不可靠（宿主机留下的 -shm 会打不开）→ 容器内用 DELETE
+      SQLITE_JOURNAL_MODE: "DELETE"
     volumes:
       # 必须挂目录（SQLite 有 -wal/-shm）；且 data 里含 secret.key，丢了 API Key 解不开
       - ./data:/data

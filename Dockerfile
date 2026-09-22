@@ -40,8 +40,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # better-sqlite3 是 native 模块，standalone 的文件追踪可能漏掉 .node 与 migrator 子路径，显式覆盖
+# 注意：v13 起不再依赖 bindings 包（自带 prebuilds/，缺失会导致 COPY 失败）
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/drizzle-orm ./node_modules/drizzle-orm
 
 # 建表脚本 / SQL / seed（首次初始化用 `docker compose exec app node scripts/seed.mjs`）

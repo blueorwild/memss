@@ -479,4 +479,38 @@
 - 收尾必做：`tsc` + `eslint` + `next build` + 跑既有回归脚本（`flow-behavior` 20/20）；改 `next.config.ts` 后
   dev server 会自动重载，新路由（`/api/health`）立即可用，**不需要杀站长的 dev server**。
 
+## Windows 上机：本地跑通（2026-09-22，本机 = 部署机）
+
+- **实查现状**：仓库 clone 在 `D:\projects\memss`（main 干净、remote = GitHub 私有仓库）；**无 Node、无 `.env`、无 `data/app.db`**；`media/seed` 随仓库带 159 个占位文件；Docker Desktop 已装（`C:\Program Files\Docker`）但 **WSL 无发行版、docker CLI 不在 PATH**（待启动/更新）。
+- **Node 安装方式（免安装 zip，避免 UAC）**：官方 `node-v24.21.0-win-x64.zip`（与开发机同版本）→ 解压到 `D:\nodejs`，已追加到**用户级 PATH**（新终端生效；本会话/工具内需 `$env:Path = "D:\nodejs;$env:Path"`）。未用 nvm-windows（单版本够用，后续需要再补）。
+- **⚠️ `npm ci` 必须加 `--ignore-scripts`（本机/Windows 关键坑）**：`better-sqlite3@13` 从 v13 起**自带 `prebuilds/win32-x64.node`**（package.json 无 install 脚本、`gypfile:false`、GitHub release **0 assets**），但 npm 的 rebuild 阶段仍会对含 `binding.gyp` 的包跑 `node-gyp rebuild` → 下载 `node.lib`（nodejs.org 走 Cloudflare IP）超时 + 本机无 VS 工具链 → `npm ci` 整体失败。
+  - 解法：`npm ci --ignore-scripts`（430 包 44s）→ 运行时自动加载 `prebuilds`，已实测 `require('better-sqlite3')` 建表/插入正常。
+  - 副作用：esbuild / unrs-resolver / fsevents 的 postinstall 一并跳过；实测不影响（平台二进制走 optionalDependencies，运行时解析）。
+  - 若某天必须源码编译：`npm_config_disturl=https://npmmirror.com/mirrors/node`（npmmirror 有 `win-x64/node.lib`，已验证 200）+ Python ≥3.12 + VS Build Tools。
+- **本地跑通步骤（已完成）**：`Copy-Item .env.example .env` → `npm run db:migrate`（全新空库建表 ✓）→ `npm run seed`（5 分类 / 13 回忆，媒体写入 `media/seed`）→ `npm run dev`。
+  - 验收：`http://localhost:3000/api/health` → 200；`/star/globe` → 200、`<title>MemSS</title>`。
+- **工具/会话注意**：dev server 要用 `Start-Process` 后台起（直接在前台跑会被工具当长命令 kill，但已 detach 的子进程会存活）；检查用 `Get-Content $env:TEMP\memss-dev.out.log`。npm 的 warning 走 stderr，PowerShell 会包成 `RemoteException` 报错字样，**看 `added N packages` 才算成功**。
+- **下一步（进行中）**：~~WSL 环境~~（✅ 2026-09-22 晚已装 WSL 2.7.14，见下节）→ ~~Docker 本地构建/运行~~（✅ 见下节）→ 删 CF 3 条停放记录 → 建 Tunnel（token）→ `docker compose up -d`（含 cloudflared）→ 手机验收。
+
+## WSL 2.7.14 手动安装（2026-09-22 晚）
+
+- **背景**：部署前需要 WSL（Docker Desktop 后端）。`wsl --update` 卡在 ~100KB/s。本机 = Win10 22H2（19045）、inbox WSL（`wsl --version` 不识别、无 Appx 包）。
+- **实测链路**：本机 clash（`127.0.0.1:33210`，进程 `D:\...\tidalab\resources\libs\win32\clash.exe`）到 GitHub release asset 稳定 **2.8–4.7MB/s**；直连 GitHub=0；公共 gh 镜像（gh-proxy/ghfast/moeyy/ghproxy.net）全部不可用。结论：**慢的是 `wsl --update` 自己的下载通道，不是代理**；另外它**不支持断点续传**（关掉=从 0 开始）。
+- **解法（已验证）**：`curl.exe -x http://127.0.0.1:33210 -L -o ...` 手动下 `wsl.2.7.14.0.x64.msi`（247MB，93s）→ `Get-AuthenticodeSignature` = Valid（Microsoft 签名）→ 提权 `msiexec /i /passive /norestart`（exit 0）→ `wsl --version` 输出 2.7.14.0 / kernel 6.18.33.2-2 / Windows 10.0.19045.6466。装后 `where wsl` 有 System32 + WindowsApps 两处；WSLService 已注册（首次使用才 Running）。
+- **版本判断**：WSL 现在有**双发布线**（2.9.x / **2.7.x = 继续支持 Win10 的分支**）；GitHub latest 恰是 2.7.14；MSI 无 LaunchCondition 阻断 Win10。**以后这台机器更新 WSL：直接取 2.7.x 最新 MSI 手动装**，不必再用 `wsl --update`。
+- **方法论**：① `wsl --update` 提权启动后，非提权 shell 杀不掉（"拒绝访问"）→ 用**提权 PowerShell 脚本把「杀进程 + msiexec」合成一次 UAC** 最省事；② 判断"代理是否真生效"就 `curl -x` 实测速度；③ MSI 留在 `%TEMP%\opencode\wsl.2.7.14.0.x64.msi` 可复用（签名校验过，坏了重下 ~1.5 分钟）。
+- **用户偏好**：他说「你直接 kill 掉它再装」——**已下好且验签的完整包 > 舍不得的 20% 进度**；关键节点（一次 UAC/系统安装）他接受弹窗。
+
+## Docker 本地构建/运行（2026-09-22 晚）
+
+- **Docker Desktop 实际没装**：`C:\Program Files\Docker` 只有 `cli-plugins`（buildx/compose/scan）残留 → `winget list` + 注册表确认无本体。装法：`winget install Docker.DockerDesktop`（4.91.0 / 625MB / 需 UAC）。装后 `docker version` = Engine 29.8.0，`docker-desktop` distro Running。
+- **镜像加速（必做）**：Docker Hub 直连不可达（`auth.docker.io` 超时）。`~/.docker/daemon.json` 加 `registry-mirrors`（实测：`docker.1ms.run` 最快 216ms、`docker.m.daocloud.io`、`docker.xuanyuan.me` 可用；`docker.1panel.live` 403）→ `docker desktop restart` 生效（`docker info` 的 RegistryConfig.Mirrors 验证）。**未用 clash 代理**（Docker Desktop 的代理是另一条路，镜像够用就没配）。
+- **⚠️ 工具会话 PATH**：Docker Desktop 的 bin 不在本会话 PATH，连带两个坑——① `docker-credential-desktop` 找不到 → 构建报 `error getting credentials`；② docker CLI 本身找不到。**跑 docker 前先前置** `$env:Path = "C:\Program Files\Docker\Docker\resources\bin;$env:Path"`。
+- **Dockerfile 过时行（已修）**：stage A 写的 `COPY --from=builder .../node_modules/bindings` 在 better-sqlite3 v13 下必然失败（v13 不再依赖 `bindings`，lockfile 里 0 处）→ 删除该行，保留 better-sqlite3 / drizzle-orm 两处显式覆盖。
+- **⚠️ SQLite WAL × Windows bind mount（9p）**：容器首启崩溃重启，`SqliteError: disk I/O error / SQLITE_IOERR_SHMOPEN`（卡在 `journal_mode = WAL`）。根因：WAL 需 mmap 共享内存，**宿主机 Node 留下的 `-shm` 在 9p 里打不开**（实测容器自建的 `-shm` 反而可用 —— 所以「时好时坏」）。修法：**compose 显式 `SQLITE_JOURNAL_MODE=DELETE`**（容器确定性 DELETE）+ 代码 4 处（`src/lib/db/index.ts`、`scripts/{migrate,seed,seed-demo}.mjs`）读该环境变量、pragma 失败再兜底 DELETE；**本地开发默认仍 WAL**。
+- **回归（值得复用）**：宿主机 Node 以 WAL 写入后 `process.kill(pid,'SIGKILL')` 留下 12KB `-wal` → 启动容器 → healthy、`journal_mode=delete`、**数据零丢失**（探针表 1 行仍在，事后已 drop）。
+- **本地验收**：新增 `docker-compose.local.yml`（**未进仓库**，仅回环 `127.0.0.1:3100:3000`；base compose 故意不映射宿主端口，生产走 Tunnel）→ 容器 `Up (healthy)`、`/api/health` 200、`/star/globe` 200（title MemSS）、媒体 200、容器内 `categories=5 / memories=13`；`tsc` / `eslint` / 镜像内 `next build` 全绿。
+- **注意**：容器与本地 `npm run dev` **不要同时开同一个 `data/app.db`**（跨 OS 双写）；切换前先停一侧。容器 `COOKIE_SECURE=1`，浏览器看访客只读用 `http://localhost:3100`（Chrome 下 localhost 属可信源，站长登录可能也可用）。
+- **下一步**：CF 控制台删 3 条停放记录 + 建 Tunnel（token）→ `.env` 填 `TUNNEL_TOKEN` → `docker compose up -d`（含 cloudflared）→ 关 Rocket Loader / Auto Minify、验 SSE → 手机 4G/5G 验收。
+
 

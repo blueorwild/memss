@@ -16,7 +16,14 @@ if (url !== ":memory:") {
 }
 
 const sqlite = new Database(url);
-sqlite.pragma("journal_mode = WAL");
+// WAL 依赖共享内存（mmap）：Windows 目录经 bind mount（9p）挂进容器时，宿主机留下的 -shm 打不开
+// （SQLITE_IOERR_SHMOPEN）。容器由 compose 显式设 SQLITE_JOURNAL_MODE=DELETE；pragma 失败再兜底退回 DELETE。
+const journalMode = process.env.SQLITE_JOURNAL_MODE ?? "WAL";
+try {
+  sqlite.pragma(`journal_mode = ${journalMode}`);
+} catch {
+  sqlite.pragma("journal_mode = DELETE");
+}
 
 export const db = drizzle(sqlite, { schema });
 export { schema };

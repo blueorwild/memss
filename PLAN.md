@@ -901,3 +901,31 @@ begin(mode, welcome) / reset / setMessages / patch
 - 面板打开时环境动画照常运行（见上：冻结的观感不可接受），这部分开销仍在。
 - 小精灵造型的 8 个 SVG 无限动画仍是主线程开销（约 0.9ms/帧、60 次/秒样式重算），
   本轮没有动美术包（它是角色的灵魂，动它属于观感决策）；要降只能减少动画部件或降低动作频率。
+
+## 29. Windows 上机：本地跑通 + Docker 本地验证（2026-09-22）
+
+### 本机环境
+- Windows 10 家庭中文版 22H2；仓库 clone 到 `D:\projects\memss`；**Node 24.21.0 免安装版在 `D:\nodejs`**（用户级 PATH，与开发机同版本）。
+- `npm ci` 需加 `--ignore-scripts`：better-sqlite3 v13 自带 `prebuilds/win32-x64.node`（无 install 脚本、GitHub release 0 assets），但 npm rebuild 阶段仍会跑 node-gyp（下载 `node.lib` 超时 + 本机无 VS 工具链）→ 直接失败；`--ignore-scripts` 后运行时自动加载 prebuilds（已实测建表/读写正常）。
+- `npm run db:migrate`（全新空库）→ `npm run seed`（5 分类 / 13 回忆）→ `npm run dev`：`/api/health` 200、`/star/globe` 200（title MemSS）。
+
+### Docker Desktop（本机实际未装 → 现装）
+- `C:\Program Files\Docker` 只有 `cli-plugins` 残留，本体与 `docker.exe` 都没有；`winget install Docker.DockerDesktop`（4.91.0）安装。
+- WSL 从 Win10 inbox（内核 5.10.16）`wsl --update --web-download` 升级到 **2.7.14.0 / 内核 6.18.33.2**，`docker-desktop` distro 正常。
+- Docker Hub 不可达（`auth.docker.io` 超时）→ `~/.docker/daemon.json` 配 `registry-mirrors`（`docker.1ms.run` / `docker.m.daocloud.io` / `docker.xuanyuan.me`，实测可用）。
+- 工具会话里需前置 `C:\Program Files\Docker\Docker\resources\bin` 到 PATH（否则 docker CLI 与 `docker-credential-desktop` 都找不到）。
+
+### 本次代码修复（2 处）
+1. **`Dockerfile`**：删除 `COPY --from=builder .../node_modules/bindings` —— better-sqlite3 v13 已不依赖 `bindings`（lockfile 0 处），该行会让构建在 runner 阶段必然失败。
+2. **SQLite WAL × Windows bind mount（9p）**：容器首启 `SQLITE_IOERR_SHMOPEN`（WAL 需 mmap，宿主机 Node 留下的 `-shm` 在 9p 打不开；容器自建的 `-shm` 却可用 → 行为不稳定）。修法：
+   - `docker-compose.yml` 显式 `SQLITE_JOURNAL_MODE: "DELETE"`（容器确定性用 DELETE）；
+   - `src/lib/db/index.ts` + `scripts/{migrate,seed,seed-demo}.mjs` 读该环境变量，pragma 失败再兜底 DELETE；**本地开发默认仍 WAL**。
+   - 回归：宿主机以 WAL 写入后强杀（留下 12KB `-wal`）→ 容器启动自动恢复、`journal_mode=delete`、数据零丢失。
+
+### 验收
+- `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build app` → `Up (healthy)`；`/api/health` 200、`/star/globe` 200（title MemSS）、`/api/media/seed/*` 200；容器内 `categories=5 / memories=13`；`tsc` / `eslint` / 镜像内 `next build` 全绿。
+- `docker-compose.local.yml`（新增，未进仓库）只加 `127.0.0.1:3100:3000` 回环映射，用于本机浏览器验收；base compose 不映射宿主端口（生产走 Tunnel）。
+- 注意：容器与本地 `npm run dev` 不要同时开同一个 `data/app.db`。
+
+### 待做
+- Cloudflare：删 3 条停放 A 记录 → 建 Tunnel（token）→ `.env` 填 `TUNNEL_TOKEN` → `docker compose up -d`（含 cloudflared）→ 关 Rocket Loader / Auto Minify、验 SSE → 手机 4G/5G 验收。

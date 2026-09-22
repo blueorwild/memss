@@ -21,7 +21,13 @@ if (DB_PATH !== ":memory:") {
 }
 
 const sqlite = new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
+// WAL 在 Windows bind mount（9p）上不可靠 → 容器由 compose 设 SQLITE_JOURNAL_MODE=DELETE，失败再兜底
+const journalMode = process.env.SQLITE_JOURNAL_MODE ?? "WAL";
+try {
+  sqlite.pragma(`journal_mode = ${journalMode}`);
+} catch {
+  sqlite.pragma("journal_mode = DELETE");
+}
 
 try {
   migrate(drizzle(sqlite), { migrationsFolder: MIGRATIONS_DIR });
