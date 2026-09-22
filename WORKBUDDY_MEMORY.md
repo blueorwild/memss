@@ -418,3 +418,65 @@
 - 无头 Chrome 测不了真机 GPU：`deviceScaleFactor` 能验证 DPR 分支，但毛玻璃/合成的代价在软件渲染下不显形。
   报告里要写清「哪些是实测、哪些是真机推断」，别让用户以为 GPU 也测过了。
 - `next dev` 本身就慢 2~5×，长开还会涨堆；**结论里要主动提醒用 prod 复测**，避免把 dev 的账算到代码上。
+
+## 域名申请 + Cloudflare 托管（2026-09-22）
+
+- **决策链**：付款方式只有支付宝/微信（CF Registrar 不支持 → 选 Dynadot，支持支付宝+人民币+免费 WHOIS 隐私）；
+  **永远走 CF Tunnel、不备案** → 后缀不受工信部白名单限制；主体名就用 `memss`；面向家人朋友、大陆为主；
+  **Phase 3（部署改造）暂缓**，本轮只做域名。最终 `memss.top` @ Dynadot（首年 ¥18、续费 ¥29，到期 2027-09-22）。
+- 用户偏好（第二次出现同一种）：**可感知的验证优先于"配置干净"** —— 他宁可留着 Dynadot 的停放记录（Sedo 广告页），
+  也要能在浏览器里亲眼确认 `memss.top` 能打开；上一轮"面板打开不冻结星空"也是同一逻辑。
+  以后凡是"清理/优化"与"能亲眼验证"冲突，先问、别替他决定。
+- **我犯的错**：用户在 Dynadot 改完 NS 后，我跑 `dig +trace` 发现注册局仍是 `ns1/ns2.dyna-ns.net`，
+  于是判断"没生效"——这是对的；但**更该早做的是**：一开始就告诉他"CF Add a site 只是分配 NS，必须回注册商填并保存"，
+  他很可能就是第一次只填没保存。**改 DNS 这类操作，步骤里要显式写"必须点保存"**。
+- 教训（通用）：**改完 DNS 一律回查注册局，别信控制台/等待**。判据优先级：
+  `dig +trace`（从根问起，绕过缓存）> 直接问 TLD 权威（`.top` 是 ZDNS：`a.zdnscloud.cn`）> whois > 公共 DNS。
+  **递归缓存会骗人**：8.8.8.8 / 腾讯 DNSPod 在 TTL 3600 内仍返回旧委派，阿里/百度/OpenDNS 已更新——
+  用户看到的"没生效"可能只是缓存，所以必须区分「注册局没改」和「缓存没过期」。
+- **CF 是否 Active 的硬判据**（不用登控制台就能从外部判断）：Pending 时 CF 权威返回**真实源 IP**；
+  Active 后若是橙云代理，CF 权威返回 **CF 自己的 IP**（`104.21.x` / `172.67.x`）。
+  实测切换后权威从 `185.53.179.128` 变成 `172.67.171.41`+`104.21.39.179`，边缘返回 `522 + server: cloudflare + cf-ray` → 确认已代理。
+  这招以后判断任何 CF 站点是否 Active 都能用。
+- CF「Add a site」会自动**扫描并导入**注册商的现有解析（本次是 Dynadot 的 parking：`*`/`@`/`www` → A `185.53.179.128`，
+  Sedo 停放服务器）。**配 Tunnel 前必须删**：DNS 规范里同名的 A 与 CNAME 不能共存，Tunnel 要建 CNAME 会被挡住。
+  删记录**不影响 NS**（注册局层委派 vs zone 内容，两回事）——这个区分用户容易混淆，要讲清。
+- SSL/TLS 模式：**Flexible 会导致重定向循环**（CF 用 HTTP 回源 + 应用强制 HTTPS 跳转），
+  Tunnel + `http://app:3000` 用 **Full**；新站点默认是 `Automatic SSL/TLS`，**要先点 `Custom` 才看得到 Full 选项**（用户就卡在这里）。
+- Dynadot 中文界面叫**「名称服务器」（Name Servers）**，别和**「导入/导出 DNS」**混：前者把整个解析权交给 CF，
+  后者是把 A/CNAME 记录塞进 Dynadot 自己的 DNS（前提是 NS 还用 Dynadot）。判别标准：填的是 `*.ns.cloudflare.com`。
+- 观察：本机到 CF 边缘很慢（`www.cloudflare.com` 约 20s，`cf-ray` 落 LAX）→ 用户是「大陆为主」，
+  **上线后 CF 免费版在大陆的实际速度必须实测**，别在文档里假设"有 CF 就快"。
+- 协作节奏（有效，可复用）：**用户在控制台点操作，我用只读命令（dig/whois/curl/nc）验证并给结论**。
+  用户会直接说"你再试下" —— 准备好一组可复用的验收命令，每次改完就跑同一组，比每次临时想命令强。
+
+## 阶段 A：部署改造（2026-09-22）
+
+- **最重要的教训（沟通）**：我列"阶段 A 共 8 项"时直接甩术语（MEDIA_ROOT / standalone / health / migrate），
+  用户回"具体是做什么、目的是啥，我没太懂"。改成**「做什么（大白话）+ 不做会怎样」的两列表**后立刻懂了。
+  → 以后给非技术决策的方案：**先讲"不做会怎样"，再讲"做什么"**，术语一律翻译成后果。用户会直接说"我没太懂"，
+  这时不要重复原话，要换一个角度重讲。
+- **用户的一个固定偏好**：动手前要"先解释清楚"，他会主动追问。所以大任务开工前，先花一轮把"为什么需要"讲透，
+  比直接开工更快（这次少走了返工）。
+- 决策：**取消 `middleware`** —— 页面已在 Server Component 里 `redirect`、API 已 `requireOwner`/`requireReadAccess`，
+  再加一层是重复且容易误伤（健康检查、`/_next/*`、登录接口都得放行）。原计划的 `AUTH_SECRET`/`ACCESS_PASSWORD`
+  **代码里 0 处引用**（口令存 DB、cookie 存随机 token 的 sha256）→ 早期设计残留，已从 `.env.example` 删掉。
+  **教训：文档里的"计划项"要定期和代码对账**，不然会照着过时描述去实现。
+- **跳过本地 Docker 验证**（开发机没装 Docker）→ 直接上 Windows 验。用户接受"先写配置、上机再验"。
+- **Next standalone 的大坑**：`output: "standalone"` 会把**项目根整个拷进 `.next/standalone`** ——
+  实测含 `data/app.db`、`data/secret.key`、`media/`、`.env`、`*.md`（60M）。三重防护：
+  ① `outputFileTracingExcludes`（data/media/.env*/*.md，→47M）；② `.dockerignore`（构建上下文本身就没有）；
+  ③ Dockerfile 里 `npm run build && rm -f .next/standalone/.env`（**`.env` 是 Next 自己拷的，排除规则拦不住**）。
+  → 通用教训：**打了"精简输出"的开关，也要实测输出里到底有什么**，尤其是敏感文件。
+- standalone 还**不带 native 产物与子路径**：`better-sqlite3/build/Release/*.node` 缺失、`drizzle-orm/better-sqlite3/` 为空
+  → Dockerfile 里显式 COPY 覆盖 `better-sqlite3`/`bindings`/`drizzle-orm` 三个包。
+- `better-sqlite3` 预编译包从 **GitHub** 下载，国内网络会失败 → deps 阶段装 `python3 make g++` 让 node-gyp 兜底（`.npmrc` 已配 npmmirror）。
+- **`drizzle-kit` 是 devDependency**，生产镜像没有 → 迁移改用 `drizzle-orm/better-sqlite3/migrator` 写 `scripts/migrate.mjs`。
+  但**本开发机的库是 `drizzle-kit push` 建的、没有 `__drizzle_migrations`**，所以 `db:migrate` 只能用于全新空库
+  （容器/新机器），本机继续用 `npx drizzle-kit push` —— 这种"两套建表路径"必须写进文档，否则以后必踩。
+- 验证手法（有效）：**用临时目录 + 临时库验证路径类改动**（`MEDIA_ROOT=/tmp/mtest DATABASE_URL=/tmp/migtest.db`），
+  跑完对比"真实 `media/seed` 159 个文件是否变化"—— 既验证了新行为，又证明没污染真实数据。以后改路径/写盘逻辑都这么验。
+- 收尾必做：`tsc` + `eslint` + `next build` + 跑既有回归脚本（`flow-behavior` 20/20）；改 `next.config.ts` 后
+  dev server 会自动重载，新路由（`/api/health`）立即可用，**不需要杀站长的 dev server**。
+
+

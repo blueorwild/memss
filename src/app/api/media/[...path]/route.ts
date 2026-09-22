@@ -3,10 +3,9 @@ import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { requireReadAccess } from "@/lib/auth";
+import { mediaRoot } from "@/lib/paths";
 
 export const runtime = "nodejs";
-
-const MEDIA_ROOT = path.join(process.cwd(), "media");
 
 const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
@@ -35,9 +34,10 @@ export async function GET(
   const denied = await requireReadAccess();
   if (denied) return denied;
   const { path: parts } = await ctx.params;
-  const abs = path.normalize(path.join(MEDIA_ROOT, parts.join("/")));
+  const root = mediaRoot();
+  const abs = path.normalize(path.join(root, parts.join("/")));
 
-  if (abs !== MEDIA_ROOT && !abs.startsWith(MEDIA_ROOT + path.sep)) {
+  if (abs !== root && !abs.startsWith(root + path.sep)) {
     return new Response("Forbidden", { status: 403 });
   }
 

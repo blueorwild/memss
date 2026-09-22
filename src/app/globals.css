@@ -151,6 +151,9 @@ body {
 /** 星星周围的呼吸粒子：`--pdx/--pdy/--pdur/--pdelay` 由 JSX 给 */
 .ambient-particle {
   animation: starParticle var(--pdur, 3s) ease-out var(--pdelay, 0s) infinite;
+  /* delay 期间不跑关键帧，默认会用基础样式（opacity:1）→ 粒子会先在小精灵/星点中心
+     亮一个点。backwards 让延迟期间套用 0% 的 opacity:0，与原 framer 版一致。 */
+  animation-fill-mode: backwards;
 }
 
 /** 有回忆的星点呼吸：2.4s 与旧实现一致 */

@@ -1,0 +1,43 @@
+# MemSS 部署：应用 + Cloudflare Tunnel（token 方式）
+# 用法：写好 .env（含 TUNNEL_TOKEN）→ docker compose up -d --build
+
+services:
+  app:
+    build: .
+    image: memss-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: /data/app.db
+      MEDIA_ROOT: /media
+      # 走 Cloudflare（HTTPS），cookie 必须带 Secure
+      COOKIE_SECURE: "1"
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    volumes:
+      # 必须挂目录（SQLite 有 -wal/-shm）；且 data 里含 secret.key，丢了 API Key 解不开
+      - ./data:/data
+      - ./media:/media
+    healthcheck:
+      # slim 镜像没有 curl，用 Node 自带的 fetch
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # 若挂载卷报 EACCES（Linux 主机常见），取消下面注释以 root 运行
+    # user: "0:0"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - app

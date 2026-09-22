@@ -267,32 +267,119 @@ ai_try/
 - **回归**：桌面 1440×900 + 窄屏 375 全页无横向溢出；`5/7/100 段` 卡片均为 **3:2**（200×133 / 150×100）、100 段仅渲染 10–12 张（视口裁剪正常）；详情页/面板/编辑/裁剪无回归；控制台无报错。
 - **全流程**：窄屏 星空 → 点卡片进详情 → 小精灵抽屉 → 编辑 → **双击瓷砖弹出裁剪框**（353×391 完全适配 375 视口）→ 保存。
 
-### 13.4 Phase 3 — 部署改造（代码层）
-1. `MEDIA_ROOT` 环境变量：`api/media`、`api/memories` 路径可配（默认 `./media`）。
-2. 访问保护：`middleware.ts` 保护页面与 `/api`（含 `/api/media`），放行 `/login`、`/api/auth/*`、`/_next/*`、favicon；`/login` 页 + `/api/auth/login|logout`；cookie 用 `AUTH_SECRET` 签名（httpOnly/secure/sameSite）。
-3. `next.config.ts` 加 `output: "standalone"`。
-4. `/api/health` 健康检查。
-5. `Dockerfile`（多阶段、linux、编译 `better-sqlite3`）+ `docker-compose.yml`（`app` + `cloudflared` + 卷 `data`/`media` + healthcheck + `restart: unless-stopped`）。
-6. 容器内初始化入口（`db:push` + `seed`）。
-7. 备份脚本/说明；本地 `docker compose up` 先行验证。
+### 13.4 Phase 3 — 部署改造（代码层）✅ 已完成（2026-09-22）
+
+> 实施细节与踩到的坑见 **§13.8**；下面保留原计划并标注实际结果。
+
+1. ✅ **`MEDIA_ROOT` 环境变量**：新增 `src/lib/paths.ts`（`mediaRoot()` / `uploadDir()`）；改 `api/media/[...path]`、`db/mutations`、`media-upload`、`scripts/seed.mjs`、`scripts/seed-demo.mjs`。不设时回退 `<项目根>/media`，本机行为完全不变。
+2. ✅ **访问保护——已用更简洁的方式实现，取消 `middleware.ts`**：
+   - 页面：3 个 Server Component 在渲染前 `redirect`（`page.tsx` / `memory/[id]` / `star/[...path]`）
+   - 数据：`requireOwner()`（写）/ `requireReadAccess()`（读，看「允许访客浏览」开关）
+   - 口令：scrypt 哈希存 DB `settings` 表；会话 token 只以 sha256 存库、明文仅存 httpOnly cookie
+   - **不需要 middleware，也没有 `/login` 页**（登录入口在小精灵面板）；原计划的 `AUTH_SECRET` / `ACCESS_PASSWORD` 是早期设计残留，代码里 0 处引用，已从 `.env.example` 移除
+3. ✅ `next.config.ts` 加 `output: "standalone"`，并加 `outputFileTracingExcludes` 排除 `data/`、`media/`、`.env*`、`*.md`。
+4. ✅ `/api/health`：不设登录门禁，`select 1` 探活，失败返 503（给容器 healthcheck 与 CF 用）。
+5. ✅ `Dockerfile`（多阶段 `node:24-bookworm-slim` + `better-sqlite3` 编译兜底 + 显式覆盖 native/migrator）+ `docker-compose.yml`（`app` + `cloudflared` token 方式 + 卷 `data`/`media` + healthcheck + `restart: unless-stopped`）+ `.dockerignore`。
+6. ✅ **容器内初始化**：新增 `scripts/migrate.mjs`（drizzle 官方 migrator，幂等）+ `npm run db:migrate`；容器 `CMD` = `node scripts/migrate.mjs && exec node server.js`。**seed 不自动跑**（首次手动 `docker compose exec app node scripts/seed.mjs`），避免误覆盖线上数据。
+7. ⏳ 备份脚本/说明待做（§13.6）；**本地 `docker compose up` 验证已跳过**（开发机没装 Docker），改为直接在 Windows 上机验证。
+
 
 ### 13.5 Phase 4 — Windows 上机 + Cloudflare 上线
 1. 目标机装 WSL2 + Docker Desktop。
 2. 代码分发：GitHub 私有仓库 → clone。
-3. 买域名 → 托管 Cloudflare → 创建 Tunnel（token 方式）。
+3. 买域名 → 托管 Cloudflare（**已完成，见 §13.5.1**）→ 创建 Tunnel（token 方式，待做）。
 4. `.env.production`：`AGENT_SECRET`/`AUTH_SECRET`/`ACCESS_PASSWORD`/`DATABASE_URL=/data/app.db`/`MEDIA_ROOT=/media`。
 5. `docker compose up -d` → 初始化 DB + seed。
 6. Cloudflare：Public hostname → `http://app:3000`；SSL=Full；**关闭 Rocket Loader / Auto Minify**；验证 SSE 不被缓冲。
 7. Windows：关闭睡眠/休眠、确保 Docker 与隧道自启。
 8. 手机验收：登录 → 导航 → 看回忆 → 上传 → 对话 → 历史（4G/5G 各测）。
 
+### 13.5.1 域名申请与 Cloudflare 托管（已完成 2026-09-22）
+
+#### 决策口径
+- 付款方式只有**支付宝/微信** → CF Registrar 不支持支付宝，选 **Dynadot**（支持支付宝 + 人民币计价 + 免费 WHOIS 隐私）。
+- **永远走 CF Tunnel、不做 ICP 备案** → 后缀可自由选（不受工信部白名单限制）。
+- 主体名就用 **`memss`**；面向**家人朋友、大陆为主**（故家里上行带宽是后续瓶颈，缓存策略见 §13.5 步骤 6）。
+- 已核实：`memss.com`（2005 年注册）与 `memss.net`（2015 年注册）**已被占**；`memss.top` / `memss.xyz` 可注册。
+- 价格对比（2026-09-22 实查）：`memss.top` @ Dynadot **首年 ¥18 / 续费 ¥29**（最省）；`memss.cc` @ Dynadot ¥30/¥53；`memss.top` @ 阿里云/腾讯云 ¥14/¥34-39（需实名认证）；`memss.xyz` 首年 ¥14 但**续费 ¥104（陷阱，已排除）**。
+- **最终：`memss.top` @ Dynadot**。
+
+#### 已完成
+- **注册**：`memss.top` @ Dynadot LLC，创建 2026-09-22T07:13Z，**到期 2027-09-22**（1 年），WHOIS 隐私已开启（Registrant 全 REDACTED），状态 `clientTransferProhibited` + `addPeriod`（新注册 60 天转移锁，正常）。
+- **托管**：NS 已切到 Cloudflare —— `lloyd.ns.cloudflare.com` / `rosemary.ns.cloudflare.com`；CF 侧已 **Active**（判据见下）。
+- **SSL/TLS 模式 = Full**（CF 的 SSL/TLS → Overview → 需先点 `Custom` 才看得到 Full/Flexible 选项）。
+
+#### 关键坑：CF「Add a site」只是分配 NS，必须回注册商填
+- 在 CF 添加站点时，CF 只是**分配**两个 `*.ns.cloudflare.com`，**不会自动生效**；必须回 Dynadot 把这两个地址填进「名称服务器」并**保存**，注册局才会改委派。
+- Dynadot 路径（中文界面）：**我的域名 → 管理域名 → 点域名 → 左侧「名称服务器」(Name Servers) → 类型选「名称服务器/自定义」→ 填两个 CF NS → 保存**。
+- **别和「导入/导出 DNS」(Import DNS) 搞混**：那个是把 A/CNAME/MX 记录批量塞进 Dynadot 自己的 DNS（前提是 NS 还用 Dynadot）；我们要的是**把整个解析权交给 CF**。
+- 判别标准：要填的是 `xxx.ns.cloudflare.com` 这种带 `ns` 的地址，不是 A / CNAME 记录。
+- 第一次改完**没生效**（注册局仍是 `ns1/ns2.dyna-ns.net`），第二次改完才成功 —— 教训：**改完必须回查注册局**，别信 CF 页面的等待。
+
+#### 验收命令（以后每次改 NS 都跑这组）
+```bash
+dig +trace +nodnssec NS memss.top | tail -4        # 注册局委派（最权威，绕过缓存）
+whois memss.top | grep -i "name server"            # 注册商侧
+dig +short A memss.top @lloyd.ns.cloudflare.com    # CF zone 内容
+curl -sI --resolve memss.top:443:104.21.39.179 https://memss.top   # CF 边缘链路
+```
+- **CF 是否 Active 的硬判据**：域名还是 Pending 时，CF 权威返回**真实源 IP**；Active 后，若记录是橙云代理，CF 权威返回 **CF 自己的 IP**（`104.21.x` / `172.67.x`）。实测：切换后 CF 权威从 `185.53.179.128` 变成 `172.67.171.41` + `104.21.39.179`，且边缘返回 `HTTP/2 522 + server: cloudflare + cf-ray` → 确认已代理。
+- **注意递归缓存会骗人**：`8.8.8.8` / 腾讯 DNSPod 在 TTL 3600 内仍返回旧委派（`dyna-ns.net`），而阿里/百度/OpenDNS 已更新 —— 判断生效一律看 `dig +trace` 或直接问 TLD 权威（`.top` 的 TLD 是 **ZDNS**：`a.zdnscloud.cn` 等）。
+- 附带确认：`185.53.179.128` 是 **Sedo 停放服务器**；`*.memss.top` / `memss.top` / `www.memss.top` 三条 A 记录都是 CF 扫描 Dynadot 停放页**自动导入**的（不是手工加的），共 3/200 条。
+
+#### 待做（域名侧收尾）
+1. **删掉 3 条停放记录**（`*.memss.top` / `memss.top` / `www.memss.top` → A 185.53.179.128）。
+   - 理由：① 指向的是广告停放页；② **同名的 A 记录会挡住 Tunnel 的 CNAME**（DNS 规范里 A 与 CNAME 不能同名共存），配 Tunnel 时 CF 会要求先删；③ `*.` 通配符会让任意随机子域都解析到停放页。
+   - **删记录不影响 NS**（NS 是注册局层委派，DNS 记录是 zone 内容，两回事）。
+   - **用户决定暂留**：为的是能在浏览器里亲眼验证 `memss.top` 可达（哪怕是广告页）—— 属于「可感知验证优先」，等配 Tunnel 前再删。
+2. 配 Tunnel 前把 **SSL/TLS 保持 Full**；再开 **Always Use HTTPS**（SSL/TLS → Edge Certificates）、**关 Rocket Loader / Auto Minify**（Speed → Optimization）。
+3. 可选：**开 DNSSEC**（CF → DNS → Settings → DNSSEC → Enable，再把 DS 记录填到 Dynadot；当前 `unsigned`）—— 免费，能防 DNS 劫持，对大陆网络环境有价值。
+4. 可选：**Email Routing**（免费）→ 把 `hi@memss.top` 转发到邮箱。
+
+#### 已知观察 / 风险
+- **本机到 CF 边缘很慢**：`https://www.cloudflare.com` 耗时约 20s，`cf-ray` 落在 LAX。用户目标是「家人朋友、大陆为主」→ **CF 免费版在大陆的实际速度必须实测**（可能要开 Tiered Cache + 把 `/_next/static/*` 与 `/api/media/*` 缓存做足，见 §13.5 步骤 6）。
+- 现在访问 `https://memss.top` 是 **CF 的错误页（实测 520，切换前是 522）** —— **预期状态**：应用未部署（§13.4 未做），源站还是 Sedo 停放页。
+- **「留着停放记录就能在浏览器看到广告页」这个目的达不到**：SSL 设为 **Full** 后 CF 用 **HTTPS 回源**（匹配访客协议），而 Sedo 停放服务器对 CF 回源返回无效响应 → CF 直接吐 520/525 错误页，不会透出停放页。
+  想真看到停放页只能把模式临时改回 **Flexible**（CF 用 HTTP 回源），但 Sedo 对数据中心 IP 是否放行未知，且**配 Tunnel 前必须改回 Full**。
+  → 结论：**看到 CF 错误页本身就等于「域名配置全通」的证明**（NS 已委派 + CF 已 Active + 边缘在服务 + 正在尝试回源），不必执着于广告页。
+- 本机网络对境外目标限制严重（`185.53.179.128` 直接 `Network is down`，`cloudflare.com` 约 20s），**从开发机 curl 判断不了浏览器实际所见**，浏览器结果要以用户实机为准。
+- `.top` 的注册局是 **ZDNS（中国）**，从 `dig +trace` 的 `a.zdnscloud.cn` 可见；对「不备案 + CF Tunnel」路线无影响。
+
 ### 13.6 Phase 5 — 维护
 - 定时备份 `data/` + `media/`（robocopy 到另一磁盘/网盘）；日志；更新流程：`git pull` → `docker compose build && up -d`。
 
 ### 13.7 迁移到 Windows 开发机（已处理的迁移修复）
-- **已完成**：`data/.gitkeep` + `src/lib/db/index.ts` 目录兜底；`.gitattributes`（统一 LF、标记二进制媒体）；`.env.example`（含 `DATABASE_URL`/`AGENT_SECRET`/`MEDIA_ROOT`/`ACCESS_PASSWORD`/`AUTH_SECRET`）。
-- **步骤**：装 Git + Node 24 → clone 私有仓库 → 新建 `.env`（`DATABASE_URL="./data/app.db"`）→ `npm ci` → `npm run db:push` → `npm run seed` → `npm run dev`（**浏览器一律用 `http://localhost:3000`**）→ 设置面板重填 AI API Key。
+- **已完成**：`data/.gitkeep` + `src/lib/db/index.ts` 目录兜底；`.gitattributes`（统一 LF、标记二进制媒体）；`.env.example`（`DATABASE_URL` / `MEDIA_ROOT` / `AGENT_SECRET` / `COOKIE_SECURE` / `TUNNEL_TOKEN`；口令不入此文件）。
+- **步骤**：装 Git + Node 24 → clone 私有仓库 → 新建 `.env`（`DATABASE_URL="./data/app.db"`）→ `npm ci` → `npm run db:migrate`（空库建表，幂等）→ `npm run seed` → `npm run dev`（**浏览器一律用 `http://localhost:3000`**）→ 设置面板重填 AI API Key。
 - **注意**：`dev` 脚本已固定 `next dev -H 127.0.0.1`（仅回环监听、不暴露内网）；Next 16 dev 若用 `127.0.0.1` 作为浏览器地址会拦开发资源导致 React 不 hydrate，故浏览器用 `localhost`。`data/`（含 API Key 密文）与 `media/uploads/` 不上传；`better-sqlite3` 若报编译错误需装 VS Build Tools；保持 Node 版本一致（24）。
+- **`db:migrate` 与 `drizzle-kit push` 的分工**：`npm run db:migrate` 只用于**全新空库**（容器 / 新机器）；
+  **本开发机的库是 `npx drizzle-kit push` 建的，没有 `__drizzle_migrations` 记录，在本机不要跑它**（会重复建表报错），本机继续用 `npx drizzle-kit push`。
+
+### 13.8 部署改造实施记录（2026-09-22）
+
+**改动的文件**
+- 新增：`src/lib/paths.ts`、`src/app/api/health/route.ts`、`scripts/migrate.mjs`、`Dockerfile`、`docker-compose.yml`、`.dockerignore`
+- 修改：`next.config.ts`（standalone + 追踪排除）、`api/media/[...path]/route.ts`、`lib/db/mutations.ts`、`lib/media-upload.ts`、`scripts/seed.mjs`、`scripts/seed-demo.mjs`、`package.json`（`db:migrate`）、`.env.example`
+
+**踩到的坑（重要）**
+1. **`output: "standalone"` 会把项目根整个拷进 `.next/standalone`** —— 实测含 `data/app.db`、`data/secret.key`、`media/`、`.env`、`*.md`（60M）。
+   三重防护：① `outputFileTracingExcludes` 排除 `data/`/`media/`/`.env*`/`*.md`（→ 47M）；② `.dockerignore` 让构建上下文本身就没有这些；
+   ③ Dockerfile 里 `npm run build && rm -f .next/standalone/.env`（`.env` 是 Next 自己拷的，排除规则拦不住）。
+2. **standalone 不会带 native 产物与 migrator 子路径**：实测 `.next/standalone/node_modules/better-sqlite3/build/Release/` 缺失、
+   `drizzle-orm/better-sqlite3/` 为空 → Dockerfile 里显式 `COPY` 覆盖 `better-sqlite3`、`bindings`、`drizzle-orm` 三个包。
+3. **`better-sqlite3` 预编译包从 GitHub 下载，国内网络可能失败** → deps 阶段装 `python3 make g++` 让 node-gyp 能兜底编译（`.npmrc` 已配 npmmirror，随上下文进镜像）。
+4. **`drizzle-kit` 是 devDependency**，生产镜像里没有 → 迁移改用 `drizzle-orm/better-sqlite3/migrator`。
+5. **卷必须挂目录**：SQLite 有 `-wal`/`-shm`；`data/secret.key` 必须随 `data/` 一起备份，否则 API Key 解不开。
+6. **非 root 运行**（uid 1001）在 Linux 主机的 bind mount 上可能 `EACCES` → compose 里留了 `# user: "0:0"` 的后路注释。
+7. **healthcheck 不能用 curl**（slim 镜像没有）→ 用 `node -e "fetch(...)"`。
+
+**本机验证结果（无 Docker，仅代码层）**
+- `npm run db:migrate`：空库建出 7 张表 + `__drizzle_migrations`，**重复执行幂等** ✓
+- `MEDIA_ROOT=/tmp/mtest` + 临时库跑 `seed`：38 个文件落在 `/tmp/mtest/seed`，**真实 `media/seed` 159 个文件未被污染** ✓，DB 内仍存相对路径（`seed/xxx.svg`）✓
+- `next build` ✓、`/api/health` 路由进入构建产物 ✓、standalone 不再含 `data`/`media`/`*.md` ✓
+- `tsc` / `eslint` 全绿 ✓
+- **未验证**：Docker 镜像构建与容器运行（开发机无 Docker）→ 上机时验证
+
 
 ## 14. 细节打磨（回忆编辑等，已完成）
 

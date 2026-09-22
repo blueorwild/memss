@@ -6,15 +6,13 @@ import { categories, media, memories, sessions } from "./schema";
 import type { Memory } from "./schema";
 import { getCategory } from "./queries";
 import { isRootCategory } from "../category-path";
-
-/** 媒体文件根目录（与 /api/media 路由一致） */
-const MEDIA_ROOT = path.join(process.cwd(), "media");
+import { mediaRoot } from "../paths";
 
 /** 解析媒体相对路径并校验不越出 media 根目录（防路径穿越） */
 function resolveMediaPath(rel: string): string | null {
-  const abs = path.resolve(MEDIA_ROOT, rel);
-  const root = path.resolve(MEDIA_ROOT) + path.sep;
-  if (!abs.startsWith(root)) return null;
+  const root = path.resolve(mediaRoot());
+  const abs = path.resolve(root, rel);
+  if (!abs.startsWith(root + path.sep)) return null;
   return abs;
 }
 

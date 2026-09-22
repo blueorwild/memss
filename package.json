@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node scripts/seed.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "seed:demo:clean": "node scripts/seed-demo.mjs --clean",
     "reset-password": "node scripts/reset-password.mjs",

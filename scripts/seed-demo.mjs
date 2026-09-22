@@ -11,7 +11,10 @@ import Database from "better-sqlite3";
  */
 
 const ROOT = process.cwd();
-const MEDIA_DIR = path.join(ROOT, "media", "seed");
+const MEDIA_ROOT = process.env.MEDIA_ROOT
+  ? path.resolve(process.env.MEDIA_ROOT)
+  : path.join(ROOT, "media");
+const MEDIA_DIR = path.join(MEDIA_ROOT, "seed");
 const DB_PATH = process.env.DATABASE_URL ?? "./data/app.db";
 
 const PARENT_ID = "demo";
@@ -72,7 +75,7 @@ function cleanDemo() {
     const mph = memIds.map(() => "?").join(",");
     const rows = db.prepare(`SELECT path FROM media WHERE memory_id IN (${mph})`).all(...memIds);
     for (const r of rows) {
-      const f = path.join(ROOT, "media", r.path);
+      const f = path.join(MEDIA_ROOT, r.path);
       // 双保险：只删 seed 目录下的 dm_* 文件
       if (f.includes(`${path.sep}seed${path.sep}dm_`)) fs.rmSync(f, { force: true });
     }

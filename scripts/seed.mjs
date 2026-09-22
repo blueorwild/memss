@@ -3,7 +3,10 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 const ROOT = process.cwd();
-const MEDIA_DIR = path.join(ROOT, "media", "seed");
+const MEDIA_ROOT = process.env.MEDIA_ROOT
+  ? path.resolve(process.env.MEDIA_ROOT)
+  : path.join(ROOT, "media");
+const MEDIA_DIR = path.join(MEDIA_ROOT, "seed");
 const DB_PATH = process.env.DATABASE_URL ?? "./data/app.db";
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });

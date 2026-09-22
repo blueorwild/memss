@@ -1,8 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-
-/** 上传文件落盘目录：media/uploads（与 /api/media 路由共用 media 根目录） */
-export const UPLOAD_DIR = path.join(process.cwd(), "media", "uploads");
+import { uploadDir } from "./paths";
 
 /** 根据 MIME 判断媒体类型：音频 / 图片 */
 export function mediaTypeOf(file: File): "image" | "audio" {
@@ -18,9 +16,10 @@ export function extOf(file: File): string {
 
 /** 把单个上传文件写入上传目录，返回其在 media 下的相对路径 */
 export async function saveUpload(file: File): Promise<string> {
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  const dir = uploadDir();
+  await fs.mkdir(dir, { recursive: true });
   const fileName = `${crypto.randomUUID()}${extOf(file)}`;
-  await fs.writeFile(path.join(UPLOAD_DIR, fileName), Buffer.from(await file.arrayBuffer()));
+  await fs.writeFile(path.join(dir, fileName), Buffer.from(await file.arrayBuffer()));
   return `uploads/${fileName}`;
 }
 
