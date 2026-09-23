@@ -15,8 +15,6 @@ export type RGB = [number, number, number];
 const TOKENS = {
   star: "--sky-star",
   beam: "--sky-beam",
-  nebula1: "--sky-nebula-1",
-  nebula2: "--sky-nebula-2",
   accent: "--accent",
   accentDeep: "--accent-deep",
   warm: "--warm",
@@ -34,8 +32,6 @@ export type Theme = Record<ThemeToken, RGB>;
 const FALLBACK: Theme = {
   star: [220, 235, 255],
   beam: [150, 180, 255],
-  nebula1: [70, 90, 160],
-  nebula2: [120, 80, 170],
   accent: [124, 196, 255],
   accentDeep: [47, 127, 208],
   warm: [255, 243, 216],

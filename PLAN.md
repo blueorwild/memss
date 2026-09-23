@@ -434,7 +434,7 @@ curl -sI --resolve memss.top:443:104.21.39.179 https://memss.top   # CF 边缘�
 - 附带修复：上传/编辑表单的日期输入补 `[color-scheme:dark]`，日历图标与搜索框一致显示为白色（原先在暗色下几乎不可见）。
 
 ### E9 主题色 token 化 + 调色 ✅ 已完成
-- **token 唯一来源**：`src/app/globals.css` 的 `:root` 定义 `--sky-void/--sky-veil/--sky-panel`（底色三层）、`--sky-nebula-1/2`（星云两团）、`--sky-star/--sky-beam`（星点/光带）、`--accent/--accent-deep`（星光蓝与深一档）、`--warm/--warm-glow`（暖金）、`--ok`。**颜色一律写成空格分隔的 RGB 分量**，于是 CSS / 内联样式 / SVG 都能用 `rgb(var(--x) / <alpha>)` 叠透明度；配 `@theme inline` 映射出 `bg-void`、`bg-panel/95`、`bg-veil`、`text-accent`、`bg-accent-deep`、`text-warm`、`text-ok`、`border-accent` 等工具类。
+- **token 唯一来源**：`src/app/globals.css` 的 `:root` 定义 `--sky-void/--sky-veil/--sky-panel`（底色三层）、`--sky-star/--sky-beam`（星点/光带）、`--accent/--accent-deep`（星光蓝与深一档）、`--warm/--warm-glow`（暖金）、`--ok`。**颜色一律写成空格分隔的 RGB 分量**，于是 CSS / 内联样式 / SVG 都能用 `rgb(var(--x) / <alpha>)` 叠透明度；配 `@theme inline` 映射出 `bg-void`、`bg-panel/95`、`bg-veil`、`text-accent`、`bg-accent-deep`、`text-warm`、`text-ok`、`border-accent` 等工具类。
 - **调色**：① 星云：原 alpha 0.18/0.14 实测近乎不可见 → 一度提到 0.35/0.28 又偏显眼 → **最终定为冷蓝 0.22 + 暖紫 0.17 两团**（第三团冷青已删，反正看不出来），渐变终点用同色 0 透明度避免过渡发灰；底色 `#05060a` **不变**。② CTA（原 Tailwind `indigo-500`，共 11 处）统一为 `--accent-deep #2f7fd0`，与 `--accent #7cc4ff` 同族（`Sprite` 的球体/拖尾/星尘也改走 `--accent`）。③ 固化**双强调色语义**：冷蓝 = 交互/导航，暖金 = 时间/回忆（`TimelineRail` 的日期点与年份、光带走 `--sky-beam`）。
 - **JS 侧**：新增 `src/lib/theme.ts` 的 `readTheme()` / `rgba()`（canvas 拿不到 CSS 类，仅 `StarBackground` 的星点用），带一份与 CSS 一致的兜底值；`layout.tsx` 的 `themeColor` 用导出的 `SKY_VOID_HEX`。
 - **dark-only**：删除 `prefers-color-scheme` 死代码，`--background` 直接指向 `--sky-void`。
@@ -962,3 +962,8 @@ begin(mode, welcome) / reset / setMessages / patch
 - **压缩**：新增 `src/lib/compress-image.ts` —— 等比缩放到最长边 2048、JPEG q0.85，校正 EXIF 方向；**不裁剪**；动图/矢量跳过；解不开（如桌面 HEIC）或压缩没收益时原样回退原文件。
 - **进度与重试**：新增 `src/lib/upload-client.ts` —— 用 XHR 取上传进度；网络错误/超时与 502/503/504 自动重试一次（4xx 不重试，避免重复提交）。`MemoryForm` 选图即压缩、按钮显示「保存中 N%」。
 - **验证**：CDP 注入 4000×3000 图片 → 预览 2048×1536 → 上传成功（落盘 26.9KB / 2048×1536）；用户真实两张原图（5.2MB + 9.3MB）在 http2 修复后上传成功。进度中间值待真机慢速上传确认。
+
+## 33. 星云移除 + 流星节奏微调（2026-09-23）
+- **星云移除**：`StarBackground` 的 `-z-20` 装饰 div（冷蓝/暖紫两团径向渐变）整个删掉——`body` 已有同色底（`--background = --sky-void`），该层只为星云而存在。连带清理 `--sky-nebula-1/2` token（`globals.css`）与 `theme.ts` 的 `nebula1/2` 兜底，不留死代码。
+- **流星节奏**：间隔 6~16s → **4~11s**（频率约 1.4 倍）；速度总倍率 `1/1.5` → **`1/1.9`**（划过由约 2~2.6s 变为约 2.6~3.3s）。首现仍 2~4s、同屏最多 1 条、冷/暖交替不变。
+- **验证**：`tsc` / `eslint` 全绿；镜像内 build 通过；无头 Chrome 截图（需 `Emulation.setFocusEmulationEnabled`，否则 `draw()` 的 `!document.hasFocus()` 分支让 canvas 空白）——背景纯 `#05060a` 无渐变、小星点与类别星星正常、无 console 报错。

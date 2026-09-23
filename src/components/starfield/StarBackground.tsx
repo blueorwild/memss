@@ -8,8 +8,8 @@ import { useSpriteStore } from "@/store/sprite";
 type Star = { x: number; y: number; z: number; r: number; tw: number };
 
 /**
- * 流星：偶发（首次 2~4s，之后每次间隔 6~16s 随机，同屏最多 1 条），
- * 方向固定「右上 → 左下」，偏快（约 1.5s 划过屏幕）。
+ * 流星：偶发（首次 2~4s，之后每次间隔 4~11s 随机，同屏最多 1 条），
+ * 方向固定「右上 → 左下」，划过约 3s。
  * 配色**冷/暖交替**出现（cool = 与星星同族的冷白/淡蓝；warm = 时间/回忆的暖金），
  * 纯属 A/B 观察用，定下来后可以只留一种。
  */
@@ -48,13 +48,13 @@ const MAX_STEP = 0.05;
 /** 流星首次出现与两次之间的间隔（ms） */
 const METEOR_FIRST_MIN_MS = 2000;
 const METEOR_FIRST_MAX_MS = 4000;
-const METEOR_GAP_MIN_MS = 6000;
-const METEOR_GAP_MAX_MS = 16000;
+const METEOR_GAP_MIN_MS = 4000;
+const METEOR_GAP_MAX_MS = 11000;
 /** 流星速度（px/s）与倾角（水平线以下，度） */
 const METEOR_SPEED_MIN = 950;
 const METEOR_SPEED_MAX = 1500;
-/** 再放慢 1.5 倍（用户反馈"有点快"）：划过时间 ×1.5 */
-const METEOR_SPEED_SCALE = 1 / 1.5;
+/** 速度总倍率：历史两轮「有点快」的反馈累计放慢 1.9 倍（数字越大越慢） */
+const METEOR_SPEED_SCALE = 1 / 1.9;
 const METEOR_ANGLE_MIN = 20;
 const METEOR_ANGLE_MAX = 34;
 /** 尾迹长度（px）与回收余量（px） */
@@ -275,20 +275,8 @@ export default function StarBackground() {
     };
   }, []);
 
+  // 底色由 body（--background = --sky-void）负责；这里只有星点画布（星云已移除）
   return (
-    <>
-      <div
-        className="pointer-events-none fixed inset-0 -z-20"
-        style={{
-          // 星云：冷蓝 + 暖紫两团柔和径向渐变（刻意很淡，只给底色一点层次）+ 底色。
-          // 渐变终点用「同色 0 透明度」而非 transparent，避免过渡发灰。
-          background:
-            "radial-gradient(60% 50% at 30% 20%, rgb(var(--sky-nebula-1) / 0.22), rgb(var(--sky-nebula-1) / 0) 70%)," +
-            "radial-gradient(50% 40% at 75% 70%, rgb(var(--sky-nebula-2) / 0.17), rgb(var(--sky-nebula-2) / 0) 70%)," +
-            "var(--sky-void)",
-        }}
-      />
-      <canvas ref={ref} className="pointer-events-none fixed inset-0 -z-10 h-full w-full" />
-    </>
+    <canvas ref={ref} className="pointer-events-none fixed inset-0 -z-10 h-full w-full" />
   );
 }

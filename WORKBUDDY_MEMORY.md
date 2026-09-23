@@ -561,4 +561,12 @@
 - **验证**：CDP 端到端（注入测试会话 → 真实点击开面板 → `DOM.setFileInputFiles` 注入 4000×3000 → 预览 `naturalWidth=2048` → 提交成功，落盘 26.9KB / 2048×1536）✓；**用户真实上传（两张 3072×4096 原图，5.2MB + 9.3MB）在 http2 修复后成功**（标题「麦门！」）✓；进度**中间值**未在自动化里采到（本地上传太快；公网脚本受缓存与临时文件清理影响），待真机慢速上传确认。
 - **环境坑（重要）**：`Get-Content | docker exec -i node` 会把**中文转成 `?`**（管道编码）→ 传给容器的脚本一律纯 ASCII；Windows 的 `%TEMP%` 会被系统清理，脚本/测试数据别长期放那里（本次 cdp.mjs/shot.mjs 已被清掉，需要时重建）。
 
+## 星云移除 + 流星节奏微调（2026-09-23）
+
+- **用户指令**：「把背景的星云去掉，流星频率稍高一点、稍慢一点」；我给的选项里用户选 **A（适度）** 与 **连 token 一起清理**。
+- **改动**：`StarBackground` 删掉 `-z-20` 星云装饰 div（body 已有同色底）；globals.css 删 `--sky-nebula-1/2`；`theme.ts` 删 `nebula1/2` 兜底。流星间隔 6~16s → **4~11s**；速度倍率 1/1.5 → **1/1.9**（划过约 2.6~3.3s）。
+- **验证工具已重建**：`%TEMP%\opencode\tools\shot.mjs`（纯 Node + 内置 WebSocket 的极简 CDP 截图，零依赖；用法 `node shot.mjs <url> <out.png> [waitMs] [W] [H] [cookieName=value]`）。**关键坑：必须 `Emulation.setFocusEmulationEnabled`**，否则 `StarBackground.draw()` 里 `!document.hasFocus()` 直接 return，canvas 全黑，会误判成「星星没了」。
+- 无头单帧逮到流星的概率约 30%（ttl/(gap+ttl)），没强求截图；节奏按常量推算 + 用户真机观感确认。
+- 已重建容器部署；`tsc` / `eslint` / 镜像 build 全绿。
+
 
