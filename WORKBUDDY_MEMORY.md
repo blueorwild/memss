@@ -511,6 +511,54 @@
 - **回归（值得复用）**：宿主机 Node 以 WAL 写入后 `process.kill(pid,'SIGKILL')` 留下 12KB `-wal` → 启动容器 → healthy、`journal_mode=delete`、**数据零丢失**（探针表 1 行仍在，事后已 drop）。
 - **本地验收**：新增 `docker-compose.local.yml`（**未进仓库**，仅回环 `127.0.0.1:3100:3000`；base compose 故意不映射宿主端口，生产走 Tunnel）→ 容器 `Up (healthy)`、`/api/health` 200、`/star/globe` 200（title MemSS）、媒体 200、容器内 `categories=5 / memories=13`；`tsc` / `eslint` / 镜像内 `next build` 全绿。
 - **注意**：容器与本地 `npm run dev` **不要同时开同一个 `data/app.db`**（跨 OS 双写）；切换前先停一侧。容器 `COOKIE_SECURE=1`，浏览器看访客只读用 `http://localhost:3100`（Chrome 下 localhost 属可信源，站长登录可能也可用）。
-- **下一步**：CF 控制台删 3 条停放记录 + 建 Tunnel（token）→ `.env` 填 `TUNNEL_TOKEN` → `docker compose up -d`（含 cloudflared）→ 关 Rocket Loader / Auto Minify、验 SSE → 手机 4G/5G 验收。
+- **下一步**：~~CF 控制台删 3 条停放记录 + 建 Tunnel（token）~~（✅ 2026-09-22 深夜完成，见下节）→ 站长口令 + API Key + 手机验收。
+
+## Cloudflare Tunnel 上线（2026-09-22 深夜）
+
+- **token**：存在 `.env` 的 `TUNNEL_TOKEN`（gitignored）。token = base64url JSON `{a: accountId, t: tunnelId, s: secret}`，本次 tunnelId `4f7a51d4-cc65-4bd8-9d79-725ebbad734f`（用临时脚本解析核对，避免把 token 打进日志）。⚠️ token 等同隧道凭证，别外传（聊天记录里已出现过一次，若在意可在 CF 里 roll）。
+- **容器**：`docker compose up -d`（app + cloudflared）；日志 `Registered tunnel connection`（QUIC、location=lax08）；precheck 报 region2 UDP 失败 → 自动降级 http2，不影响可用。
+- **Public Hostname**（Zero Trust → Networks → Tunnels → 隧道 → Public Hostname）：空 Subdomain + `memss.top` + Service HTTP `app:3000` → 保存后 CF 自动建代理 CNAME（`4f7a51d4-…cfargotunnel.com`），CF 权威 A = `104.21.39.179` / `172.67.171.41`。
+- **公网验收（本机直连）**：`https://memss.top/api/health` 200 `{"ok":true}`（2.0s）、`/star/globe` 200 title MemSS（1.4s）、`/api/media/seed/*.svg` 200、`/_next/static/*.css` 200（`cache-control: immutable`，首次 MISS）；CF-RAY 落 **SEA**，`cf-cache-status: DYNAMIC`（页面）。
+- **未验**：SSE 是否被 CF 缓冲（需站长登录 + 填 AI key 后测）；大陆实际速度（SEA 边缘，1~2s 量级）。
+- **上线后待办（用户操作）**：① 界面设站长口令（设置 → 账号）；② 填「模型服务」与「访客对话」的 API Key；③ ⚠️ `allowBrowse` 默认 true → 现在任何人访问 `memss.top` 都能只读浏览（当前仅种子演示数据；上传真实回忆前决定是否关掉）；④ 手机 4G/5G 验收；⑤ Windows 常开（禁睡眠/休眠、Docker Desktop 自启）+ 备份（PLAN §13.6）。
+
+## 类别星星「透明」根因：浏览器强制深色（2026-09-23）
+
+- **现象**：公网访问时「类别星星是透明的」（用户桌面浏览器开了强制深色）。
+- **排查顺序（可复用）**：① 先比本地容器 vs 公网：HTML 哈希一致、资源字节一致、计算样式一致 → 排除服务端/CF；② CDP 读计算样式：星星是不透明白点（`rgb(255,255,255)`、`opacity 0.85~1`、hydration 正常）→ 服务端没问题；③ 起第二个 Chrome 带 `--enable-features=WebContentsForceDark` **复现**（白点被压成暗圆、文字仍是白）；④ 最小对照页测「什么会被反色」。
+- **结论（Chromium 强制暗化行为）**：只反色 **DOM 元素的 CSS 颜色**（背景/边框/渐变）；**内联 SVG / canvas / `<img>` 的内容不受影响**。→ 流星（canvas）、小精灵（SVG）正常，DOM 白点星星被压暗 —— 这也回答了「为什么流星能正常显示」。
+- **页面侧无法退出**：实测 `<meta name="color-scheme" content="dark">`、`:root{color-scheme:dark}`、CSS 渐变背景**都拦不住**桌面 flag（简单/选择性反转）；只能用户自己关 flag（或换浏览器/无痕）。
+- **站点侧修法（已做）**：星星本体 + 呼吸粒子改用**内联 SVG**（白点 + `radialGradient` 蓝晕），强制深色下与普通模式观感一致（4x 裁剪图核对）。
+- **顺带修的真 bug**：原发光类名 `shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]` **含空格** → Tailwind 不生成 → 计算样式 `box-shadow: none`（亮星一直没发光）；改成无空格也不生成（Tailwind v4 对含 `var()`/`/` 的 shadow 任意值不解析），故改走 SVG 渐变，彻底绕开。
+- **补的声明**：`:root { color-scheme: dark }` + `layout.tsx` 的 `viewport.colorScheme`（输出 meta）——Android Chrome「深色主题」的官方退出方式，也让表单控件/滚动条走深色。
+- **验证**：普通 + 强制深色两个 Chrome 抓同一颗星（`%TEMP%\memss-pub\svg-star-{normal,dark}.png`）观感一致；公网 SSR 已含 `memss-star-glow` 与 `viewBox="0 0 16 16"`；`fill-white/25` / `group-hover:fill-white/60` 已生成；`tsc` / `eslint` / 镜像内 build 全绿。
+- **本机 CDP 工具（以后复用）**：`%TEMP%\opencode\{cdp.mjs,shot.mjs}`（Node 24 自带 WebSocket，零依赖；`CDP_PORT` 选 Chrome 实例：9333 普通 / 9334 强制深色）；`shot.mjs` 支持裁剪 + 4x 放大截图。
+
+## 保存 API Key 失败根因：密钥文件路径写死 cwd（2026-09-23）
+
+- **现象**：公网界面保存「模型服务」的 API Key 失败（500）。
+- **容器日志**：`EACCES: permission denied, mkdir '/app/data'` 反复刷。
+- **根因**：`src/lib/crypto.ts` 的密钥回退路径写死 `path.join(process.cwd(), "data", "secret.key")`；容器 cwd=`/app`（root 所有，nextjs 用户不可写），持久卷在 `/data` → 既读不到也建不了 → **加解密全失败**（保存与读取都受影响）。
+- **修法**：密钥文件改为**与 DATABASE_URL 同目录**（本机 `./data/secret.key` 行为不变；容器 `/data/secret.key`，正好是卷里已存在的那个文件），并支持 `AGENT_SECRET_FILE` 显式指定；`.env.example` 注释同步。
+- **端到端验证（不碰用户口令）**：临时向 `sessions` 表插入测试会话（token 明文只在本机变量里）→ 用 Cookie 调 `PUT /api/settings` 存 key → **200 + 掩码 `••••1234` 往返正确** → 清除测试 key、删除测试会话（sessions 4 行未动）；顺带确认用户已有的 OpenCode Go key 能正常解密（`••••tfSe`）→ 修复同时恢复了「读」路径。
+- **教训**：**凡是「相对 cwd 的落盘路径」在容器里都要过一遍** —— 容器 cwd 是 `/app`（只读权限的代码目录），持久化必须走挂载卷（本项目口径：DATABASE_URL 目录 / MEDIA_ROOT）。同类历史：`data/` 目录兜底（§13.7）、standalone 把 `.env`/`data/` 拷进产物（§13.8）。
+
+## 手机上传失败根因：CF 100 秒超时 + QUIC 隧道慢（2026-09-23）
+
+- **现象**：手机公网选两张照片上传，长时间「保存中」后提示上传失败。
+- **证据链**：app 日志 `Error: aborted / ECONNRESET`；cloudflared `Incoming request ended abruptly: context canceled`（同一条 `/api/memories`）；`media/uploads` 里没有文件 → 请求体没传完就被断。
+- **定量实验（同一 5MB 文件，本机）**：直连容器 **0.41s（12.6MB/s）**；公网（QUIC 隧道）**524 / 130s（40KB/s）**；本机直连 CF 上传 866KB/s、下载 361KB/s（家宽不是瓶颈）→ **瓶颈在隧道**。
+- **修法（已做）**：cloudflared 加 `--protocol http2`（写进 compose 并注明原因）→ 同文件公网 **200 / 14.5s（362KB/s）**，复测稳定。
+- **边界（重要）**：隧道吞吐约 **120~360KB/s**，CF 对代理请求约 **100 秒**断开（524/502）→ **可靠上传上限约 10MB**（12MB 实测 502 / 107s）。手机原图（两张 3~8MB）正好卡在边缘。
+- **待办（建议）**：前端上传前压缩（最长边 2048 + JPEG 0.85，体积降 5~10 倍）+ 上传进度 + 失败重试；否则大图仍会撞 100s 墙。
+- **验证方法（可复用）**：造随机大文件 → 用临时会话（`sessions` 表插入）→ `curl -F` 分别打 `localhost:3100` 与 `https://memss.top`，用 `-w "%{time_total} %{speed_upload}"` 量化；测完删除回忆（会连带删媒体文件）与会话。
+
+## 上传体验：前端压缩 + 进度 + 重试（2026-09-23）
+
+- **用户决策**：压缩参数选 **A（最长边 2048 + JPEG q0.85）**；口径是「**不裁剪**，只等比缩放 + 校正 EXIF 方向」。
+- **新增**：`src/lib/compress-image.ts`（`createImageBitmap`/`<img>` 解码 → canvas 等比缩放 → `toBlob`；动图/矢量跳过；**解不开或压缩没收益时原样返回**，绝不阻断上传）与 `src/lib/upload-client.ts`（XHR 才能拿到上传进度；网络错误/超时与 502/503/504 **重试一次**，4xx 不重试以免重复提交）。
+- **`MemoryForm`**：选图即压缩（预览就是压缩后的图，所见即所得）；提交按钮显示「保存中 N%」；压缩中禁用提交并提示「正在压缩图片…」；文件框下注明「最长边 2048px / JPEG（不裁剪，只压更大的）」。
+- **验证**：CDP 端到端（注入测试会话 → 真实点击开面板 → `DOM.setFileInputFiles` 注入 4000×3000 → 预览 `naturalWidth=2048` → 提交成功，落盘 26.9KB / 2048×1536）✓；**用户真实上传（两张 3072×4096 原图，5.2MB + 9.3MB）在 http2 修复后成功**（标题「麦门！」）✓；进度**中间值**未在自动化里采到（本地上传太快；公网脚本受缓存与临时文件清理影响），待真机慢速上传确认。
+- **环境坑（重要）**：`Get-Content | docker exec -i node` 会把**中文转成 `?`**（管道编码）→ 传给容器的脚本一律纯 ASCII；Windows 的 `%TEMP%` 会被系统清理，脚本/测试数据别长期放那里（本次 cdp.mjs/shot.mjs 已被清掉，需要时重建）。
 
 

@@ -29,6 +29,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   // 与 globals.css 的 --sky-void 同源（元数据只能用字面量）
   themeColor: SKY_VOID_HEX,
+  // 声明深色（输出 <meta name="color-scheme" content="dark">）：移动端深色主题的退出方式
+  colorScheme: "dark",
   // 软键盘弹出时收缩布局视口（Android），避免输入框被键盘遮住
   interactiveWidget: "resizes-content",
 };

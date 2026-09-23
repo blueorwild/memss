@@ -216,13 +216,16 @@ const StarNode = memo(function StarNode({
       className={flow ? "absolute will-change-transform" : "absolute"}
       style={style}
     >
-      {/* 可点星星的白色呼吸粒子（不拦截点击）：纯 CSS 关键帧，主线程不参与 */}
+      {/* 可点星星的白色呼吸粒子（不拦截点击）：纯 CSS 关键帧，主线程不参与。
+          用内联 SVG 画白点：Chrome 的强制深色只反色 DOM 的 CSS 颜色，SVG 内容不受影响 */}
       {hasMemories && ambient && (
         <div className="pointer-events-none absolute left-1/2 top-2 h-0 w-0">
           {STAR_PARTICLES.map((p, i) => (
-            <span
+            <svg
               key={i}
-              className="ambient-particle absolute rounded-full bg-white"
+              viewBox="0 0 10 10"
+              aria-hidden="true"
+              className="ambient-particle absolute overflow-visible"
               style={
                 {
                   width: p.size,
@@ -234,7 +237,9 @@ const StarNode = memo(function StarNode({
                   "--pdelay": `${p.delay}s`,
                 } as CSSProperties
               }
-            />
+            >
+              <circle cx="5" cy="5" r="5" style={{ fill: "#fff" }} />
+            </svg>
           ))}
         </div>
       )}
@@ -250,15 +255,27 @@ const StarNode = memo(function StarNode({
         animate={{ opacity: isZoomed ? 0 : 1, scale: isZoomed ? 1.8 : 1 }}
         transition={{ duration: isZoomed ? 0.1 : 0.3 }}
       >
-        <span
-          className={
-            hasMemories
-              ? `block h-4 w-4 rounded-full bg-white shadow-[0_0_22px_7px_rgb(var(--accent) / 0.55)]${
-                  ambient ? " ambient-pulse" : ""
-                }`
-              : "block h-2.5 w-2.5 rounded-full bg-white/25 transition-colors group-hover:bg-white/60"
-          }
-        />
+        {/* 星点用内联 SVG：① 强制深色只反色 DOM 的 CSS 颜色，SVG 内容不受影响；
+            ② 发光走 SVG 径向渐变，不再依赖 Tailwind 的 shadow-[...] 任意值类名（含 var() 时生成不稳定） */}
+        {hasMemories ? (
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            className={`block h-4 w-4 overflow-visible${ambient ? " ambient-pulse" : ""}`}
+          >
+            <circle cx="8" cy="8" r="26" fill="url(#memss-star-glow)" />
+            <circle cx="8" cy="8" r="8" style={{ fill: "#fff" }} />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 10 10" aria-hidden="true" className="block h-2.5 w-2.5">
+            <circle
+              cx="5"
+              cy="5"
+              r="5"
+              className="fill-white/25 transition-colors group-hover:fill-white/60"
+            />
+          </svg>
+        )}
         <span
           className={
             hasMemories
@@ -458,6 +475,16 @@ export default function CategoryStars({
   // 测尺寸的容器与拖动的容器分开挂 ref：两者同尺寸，避免同一节点上塞两个 ref
   return (
     <div ref={containerRef} className="relative h-full w-full">
+      {/* 星星发光（供上面的星点引用）：同色 0 透明度收尾，避免过渡发灰 */}
+      <svg width="0" height="0" className="absolute" aria-hidden="true">
+        <defs>
+          <radialGradient id="memss-star-glow">
+            <stop offset="0%" style={{ stopColor: "rgb(var(--accent) / 0.55)" }} />
+            <stop offset="45%" style={{ stopColor: "rgb(var(--accent) / 0.22)" }} />
+            <stop offset="100%" style={{ stopColor: "rgb(var(--accent) / 0)" }} />
+          </radialGradient>
+        </defs>
+      </svg>
       {flowing ? (
         <div
           ref={flowRef}

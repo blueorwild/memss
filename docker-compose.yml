@@ -38,7 +38,9 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    # --protocol http2：本线路实测 QUIC 到美西边缘只有 ~40KB/s（5MB 上传必被 CF 100s 超时中断 → 524），
+    # 换 http2 后同文件 15.3s / ~340KB/s。若无此问题可去掉该参数（QUIC 通常更快）。
+    command: tunnel --no-autoupdate --protocol http2 run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     depends_on:

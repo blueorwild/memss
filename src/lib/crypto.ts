@@ -5,9 +5,19 @@ import path from "node:path";
 /**
  * 主密钥来源（仅用于加密数据库中的 provider 密钥）：
  * 1) 环境变量 AGENT_SECRET（优先，适合部署到远端）；
- * 2) 本地回退：data/secret.key（首次自动生成，权限 600，已被 .gitignore 忽略）。
+ * 2) 环境变量 AGENT_SECRET_FILE（显式指定密钥文件路径）；
+ * 3) 回退：与数据库**同目录**的 secret.key —— 本机是 ./data/secret.key，
+ *    容器里是 /data/secret.key（与 DB 同卷，随 data/ 一起备份）。
+ *    ⚠️ 不能用 process.cwd()/data：容器里 cwd 是 /app（root 所有），nextjs 用户会 EACCES。
  */
-const KEY_FILE = path.join(process.cwd(), "data", "secret.key");
+function keyFilePath(): string {
+  if (process.env.AGENT_SECRET_FILE) return path.resolve(process.env.AGENT_SECRET_FILE);
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl && dbUrl !== ":memory:") {
+    return path.join(path.dirname(path.resolve(dbUrl)), "secret.key");
+  }
+  return path.join(process.cwd(), "data", "secret.key");
+}
 
 let cachedKey: Buffer | null = null;
 
@@ -20,15 +30,16 @@ function deriveKey(secret: string): Buffer {
 
 /** 读取本地密钥文件；不存在则生成一个 32 字节随机密钥并以 600 权限落盘 */
 function loadOrCreateKeyFile(): Buffer {
+  const file = keyFilePath();
   try {
-    const saved = fs.readFileSync(KEY_FILE, "utf8").trim();
+    const saved = fs.readFileSync(file, "utf8").trim();
     if (/^[0-9a-fA-F]{64}$/.test(saved)) return Buffer.from(saved, "hex");
   } catch {
     /* 文件不存在则下面生成 */
   }
   const key = crypto.randomBytes(32);
-  fs.mkdirSync(path.dirname(KEY_FILE), { recursive: true });
-  fs.writeFileSync(KEY_FILE, key.toString("hex"), { mode: 0o600 });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, key.toString("hex"), { mode: 0o600 });
   return key;
 }
 

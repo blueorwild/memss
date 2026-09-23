@@ -8,6 +8,8 @@ import NewCategoryDialog from "@/components/ui/new-category-dialog";
 import { useSpriteStore } from "@/store/sprite";
 import { TITLE_MAX, TITLE_MAX_HAN, titleWidth } from "@/lib/title-limit";
 import { DEFAULT_CROP, coverStyle, type Crop } from "@/lib/crop";
+import { compressImage, UPLOAD_MAX_EDGE } from "@/lib/compress-image";
+import { uploadFormWithRetry } from "@/lib/upload-client";
 import CropDialog from "./CropDialog";
 
 /** 从当前 URL 解析所处类别 id：/star/a/b → "b" */
@@ -159,6 +161,10 @@ export default function MemoryForm({
 
   const [loading, setLoading] = useState(mode === "edit");
   const [submitting, setSubmitting] = useState(false);
+  /** 选图后的压缩中状态（手机原图压缩需要几百毫秒） */
+  const [preparing, setPreparing] = useState(false);
+  /** 上传进度百分比（0~100），仅用于展示 */
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // 新建类别弹层状态
@@ -305,20 +311,23 @@ export default function MemoryForm({
     return resolved;
   }
 
-  /** 新增图片选择：追加到本次新增列表（可再次选择），并为每张生成预览 objectURL */
-  function handlePickImages(e: React.ChangeEvent<HTMLInputElement>) {
+  /** 新增图片选择：先压缩（等比缩放、不裁剪、校正方向），再追加到列表并生成预览 objectURL */
+  async function handlePickImages(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length > 0) {
-      setNewImages((prev) => [
-        ...prev,
-        ...files.map((file) => ({
-          file,
-          url: URL.createObjectURL(file),
-          crop: DEFAULT_CROP,
-        })),
-      ]);
-    }
     e.target.value = "";
+    if (files.length === 0) return;
+    setPreparing(true);
+    setError(null);
+    try {
+      const items: NewImage[] = [];
+      for (const file of files) {
+        const prepared = await compressImage(file);
+        items.push({ file: prepared, url: URL.createObjectURL(prepared), crop: DEFAULT_CROP });
+      }
+      setNewImages((prev) => [...prev, ...items]);
+    } finally {
+      setPreparing(false);
+    }
   }
 
   /** 移除一张现有图片；若它正是当前封面则清空封面选择（提交时回退首张） */
@@ -424,9 +433,11 @@ export default function MemoryForm({
         if (removeAudio && !newAudio) fd.set("removeAudio", "1");
       }
 
-      const res = await fetch(url, { method, body: fd });
-      if (!res.ok) {
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
+      // 带进度上传；网络错误 / 502/503/504 会自动重试一次（见 upload-client.ts）
+      setProgress(0);
+      const res = await uploadFormWithRetry(url, method, fd, setProgress);
+      if (res.status < 200 || res.status >= 300) {
+        const d = (res.data ?? {}) as { error?: string };
         throw new Error(d.error ?? (mode === "edit" ? "保存失败" : "上传失败"));
       }
 
@@ -437,6 +448,7 @@ export default function MemoryForm({
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSubmitting(false);
+      setProgress(0);
     }
   }
 
@@ -492,6 +504,11 @@ export default function MemoryForm({
             onChange={handlePickImages}
             className={fileCls}
           />
+          <p className="text-[11px] text-white/35">
+            {preparing
+              ? "正在压缩图片…"
+              : `自动压缩：最长边 ${UPLOAD_MAX_EDGE}px / JPEG（不裁剪，只压比它更大的）`}
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -585,10 +602,18 @@ export default function MemoryForm({
       <div className="border-t border-white/10 p-3">
         <button
           type="submit"
-          disabled={submitting || overLimit}
+          disabled={submitting || preparing || overLimit}
           className="w-full rounded-full bg-accent-deep/80 py-3 text-sm text-white transition-colors hover:bg-accent-deep disabled:opacity-40"
         >
-          {submitting ? "保存中…" : mode === "edit" ? "保存修改" : "保存回忆"}
+          {preparing
+            ? "正在压缩图片…"
+            : submitting
+              ? progress > 0
+                ? `保存中 ${progress}%`
+                : "保存中…"
+              : mode === "edit"
+                ? "保存修改"
+                : "保存回忆"}
         </button>
       </div>
 
